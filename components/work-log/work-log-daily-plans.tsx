@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Briefcase,
@@ -56,6 +56,15 @@ function formatClock(totalSeconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
+function formatSpent(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  if (safe < 60) return `${safe}s`;
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 function sortByPriority<T extends { priority: WorkLogPriority }>(items: T[]): T[] {
   return [...items].sort(
     (a, b) => PRIORITY_ORDER[a.priority ?? "medium"] - PRIORITY_ORDER[b.priority ?? "medium"]
@@ -104,6 +113,8 @@ export type DailyPlansSectionProps = {
   workSessionSecs: number;
   deenSessionSecs: number;
   fitnessSessionSecs: number;
+  azkarMorningSeconds?: number;
+  azkarEveningSeconds?: number;
   personId?: string;
   onPatch: (body: Record<string, unknown>) => Promise<boolean>;
 };
@@ -123,10 +134,21 @@ export function DailyPlansSection({
   workSessionSecs,
   deenSessionSecs,
   fitnessSessionSecs,
+  azkarMorningSeconds = 0,
+  azkarEveningSeconds = 0,
   personId = "primary",
   onPatch,
 }: DailyPlansSectionProps) {
   const [activeCoreTab, setActiveCoreTab] = useState<"work" | "deen" | "fitness">("work");
+
+  // Open a specific tab when returning from a deep link (e.g. /?tab=deen).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab === "work" || tab === "deen" || tab === "fitness") {
+      setActiveCoreTab(tab);
+    }
+  }, []);
   const [newPlanTitle, setNewPlanTitle] = useState("");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [editPlanTitle, setEditPlanTitle] = useState("");
@@ -267,7 +289,7 @@ export function DailyPlansSection({
         </form>
       </div>
 
-      <div className="flex rounded-lg border border-[var(--card-border)] bg-white/5 p-1">
+      <div data-tour="plan-tabs" className="flex rounded-lg border border-[var(--card-border)] bg-white/5 p-1">
         {(
           [
             { id: "work" as const, label: "Business" },
@@ -278,6 +300,7 @@ export function DailyPlansSection({
           <button
             key={tab.id}
             type="button"
+            data-tour={`plan-tab-${tab.id}`}
             onClick={() => setActiveCoreTab(tab.id)}
             className={`flex-1 rounded-md py-2 text-sm font-semibold transition-colors ${
               activeCoreTab === tab.id
@@ -399,7 +422,7 @@ export function DailyPlansSection({
             </div>
 
             {plan.kind === "deen" ? (
-              <div className="mb-4 grid sm:grid-cols-2 gap-3">
+              <div data-tour="azkar" className="mb-4 grid sm:grid-cols-2 gap-3">
                 <Link
                   href={`/morning-azkar?${azkarQuery}`}
                   className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
@@ -413,10 +436,16 @@ export function DailyPlansSection({
                   ) : (
                     <Sun className="w-5 h-5 shrink-0 text-amber-300" />
                   )}
-                  <div className="min-w-0 text-left">
+                  <div className="min-w-0 text-left flex-1">
                     <p className="font-bold text-white">Morning Azkar</p>
-                    <p className="text-xs text-[var(--text-secondary)]">Read & tick each adhkār</p>
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      {morningAzkar?.done ? "Completed" : "Read & tick each adhkār"}
+                    </p>
                   </div>
+                  <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-[var(--text-secondary)]">
+                    <Clock className="w-3 h-3" />
+                    {formatSpent(azkarMorningSeconds)}
+                  </span>
                 </Link>
                 <Link
                   href={`/evening-azkar?${azkarQuery}`}
@@ -431,16 +460,22 @@ export function DailyPlansSection({
                   ) : (
                     <Sparkles className="w-5 h-5 shrink-0 text-indigo-300" />
                   )}
-                  <div className="min-w-0 text-left">
+                  <div className="min-w-0 text-left flex-1">
                     <p className="font-bold text-white">Evening Azkar</p>
-                    <p className="text-xs text-[var(--text-secondary)]">Read & tick each adhkār</p>
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      {eveningAzkar?.done ? "Completed" : "Read & tick each adhkār"}
+                    </p>
                   </div>
+                  <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-[var(--text-secondary)]">
+                    <Clock className="w-3 h-3" />
+                    {formatSpent(azkarEveningSeconds)}
+                  </span>
                 </Link>
               </div>
             ) : null}
 
             {hasTimer ? (
-              <div className="mb-4 rounded-lg border border-[var(--card-border)] bg-white/[0.03] p-4">
+              <div data-tour="timer" className="mb-4 rounded-lg border border-[var(--card-border)] bg-white/[0.03] p-4">
                 <p
                   className="text-3xl sm:text-4xl font-extrabold tabular-nums text-center"
                   style={{ color: timerRunning ? accent.color : "white" }}
@@ -515,7 +550,7 @@ export function DailyPlansSection({
               </div>
             ) : null}
 
-            <div className="border-t border-[var(--card-border)] pt-4">
+            <div data-tour="subtasks" className="border-t border-[var(--card-border)] pt-4">
               <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-3">Sub-tasks</p>
 
               {regularSubTasks.length === 0 ? (

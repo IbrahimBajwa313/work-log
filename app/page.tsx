@@ -1,12 +1,26 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { WorkLogDashboard } from "@/components/work-log/work-log-dashboard";
+import {
+  SpotlightTour,
+  markTourSeen,
+  type SpotStep,
+} from "@/components/spotlight-tour";
 import {
   useWorkLogSessionGate,
   workLogAuthorizedInit,
 } from "@/hooks/useWorkLogSessionGate";
+
+function clickPlanTab(id: "work" | "deen" | "fitness") {
+  return () => {
+    const el = document.querySelector(
+      `[data-tour="plan-tab-${id}"]`
+    ) as HTMLElement | null;
+    el?.click();
+  };
+}
 
 export default function HomePage() {
   const { ready, isAuthenticated, user, signup, login, logout } = useWorkLogSessionGate();
@@ -17,6 +31,7 @@ export default function HomePage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showTour, setShowTour] = useState(false);
 
   const authorizedInit = useCallback(
     (init?: RequestInit) => workLogAuthorizedInit(init),
@@ -25,6 +40,90 @@ export default function HomePage() {
 
   const inputClass =
     "w-full px-4 py-2.5 bg-white/5 border border-[var(--card-border)] rounded-md text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/35";
+
+  const closeTour = useCallback(() => {
+    setShowTour(false);
+    markTourSeen(user?.email);
+  }, [user?.email]);
+
+  const tourSteps = useMemo<SpotStep[]>(
+    () => [
+      {
+        selector: '[data-tour="logo"]',
+        title: "Welcome to Work Logging 👋",
+        body: "This is your daily dashboard. Here you track your time, tick off tasks, and build good habits. Let's take a 60-second tour of what each part does.",
+      },
+      {
+        selector: '[data-tour="plan-tabs"]',
+        title: "Your three daily areas",
+        body: "Switch between Business (your work), Deen (faith), and Fitness. Each area keeps its own timer and to-do list.",
+        before: clickPlanTab("work"),
+        beforeDelay: 200,
+      },
+      {
+        selector: '[data-tour="timer"]',
+        title: "Start & stop the timer",
+        body: "Press Start when you begin and Stop when you finish — the app counts the minutes for you. No time to run it live? Type the hours/minutes under “Manual time”.",
+        before: clickPlanTab("work"),
+        beforeDelay: 200,
+      },
+      {
+        selector: '[data-tour="subtasks"]',
+        title: "Add tasks for the day",
+        body: "List what you want to get done, then tap the circle to mark each one complete. You can tag a task High/Medium/Low and add a time estimate.",
+        before: clickPlanTab("work"),
+        beforeDelay: 200,
+      },
+      {
+        selector: '[data-tour="azkar"]',
+        title: "Morning & Evening Azkar",
+        body: "Inside Deen you'll find the daily Azkar (morning & evening remembrances). Open one to read each du'ā in Arabic with its English meaning and reward, then tap as you recite — your progress is saved for the day.",
+        before: clickPlanTab("deen"),
+        beforeDelay: 320,
+      },
+      {
+        selector: '[data-tour="daily-goal"]',
+        title: "Your daily goal",
+        body: "Set a time goal for the day (say, 4 hours). This bar fills up as you log time so you always know how you're doing. Tap it to change the goal.",
+      },
+      {
+        selector: '[data-tour="stats"]',
+        title: "Your numbers at a glance",
+        body: "Today's total, the last 7 days, this month, your day streak 🔥, and how many tasks you've completed.",
+      },
+      {
+        selector: '[data-tour="templates"]',
+        title: "Saved task templates",
+        body: "Have a routine you repeat daily? Save it once, then add all those tasks with a single tap instead of retyping them.",
+      },
+      {
+        selector: '[data-tour="person-tabs"]',
+        title: "Track more than one person",
+        body: "Manage separate profiles from the same account — handy if you're logging time for a team or family.",
+      },
+      {
+        selector: '[data-tour="notes"]',
+        title: "Day notes",
+        body: "Jot down anything worth remembering about the day — wins, blockers, or reminders.",
+      },
+      {
+        selector: '[data-tour="chart"]',
+        title: "See your progress",
+        body: "This chart shows your hours for the last 14 days, split by Business, Deen, and Fitness, so you can spot your best days.",
+      },
+      {
+        selector: '[data-tour="history"]',
+        title: "Look back anytime",
+        body: "Every past day is saved here. Tap any day to expand it and see exactly what you did.",
+      },
+      {
+        selector: '[data-tour="tour-btn"]',
+        title: "Replay this anytime",
+        body: "That's it! Click “Tour” here whenever you'd like to see this walkthrough again. Enjoy logging your day 🎉",
+      },
+    ],
+    []
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,6 +136,8 @@ export default function HomePage() {
           : await login(email, password);
       if (!result.ok) {
         setError(result.error);
+      } else if (mode === "signup") {
+        setShowTour(true);
       }
     } finally {
       setSubmitting(false);
@@ -177,15 +278,19 @@ export default function HomePage() {
   }
 
   return (
-    <WorkLogDashboard
-      apiBase="/api/work-log"
-      settingsApiBase="/api/work-log/settings"
-      authorizedInit={authorizedInit}
-      title="Work Logging"
-      subtitle="Track business work, Deen, fitness, tasks & goals"
-      userEmail={user?.email}
-      userName={user?.name}
-      onLogout={logout}
-    />
+    <>
+      <WorkLogDashboard
+        apiBase="/api/work-log"
+        settingsApiBase="/api/work-log/settings"
+        authorizedInit={authorizedInit}
+        title="Work Logging"
+        subtitle="Track business work, Deen, fitness, tasks & goals"
+        userEmail={user?.email}
+        userName={user?.name}
+        onLogout={logout}
+        onStartTour={() => setShowTour(true)}
+      />
+      <SpotlightTour open={showTour} steps={tourSteps} onClose={closeTour} />
+    </>
   );
 }

@@ -12,6 +12,7 @@ import {
   Circle,
   Clock,
   Flame,
+  HelpCircle,
   ListChecks,
   Loader2,
   StickyNote,
@@ -56,6 +57,8 @@ export type WorkLogDashboardProps = {
   userEmail?: string;
   userName?: string;
   onLogout?: () => void;
+  /** Opens the onboarding tour again. */
+  onStartTour?: () => void;
   /** When set, enables people profiles, saved tasks, and daily goals. */
   settingsApiBase?: string;
 };
@@ -151,6 +154,8 @@ type WorkLogDay = {
   fitnessTasks?: WorkLogTask[];
   fitnessMinutes?: number;
   fitnessTimerStartedAt?: string | null;
+  azkarMorningSeconds?: number;
+  azkarEveningSeconds?: number;
   notes: string;
 };
 
@@ -211,6 +216,8 @@ function emptyDay(dateKey: string): WorkLogDay {
     fitnessTasks: [],
     fitnessMinutes: 0,
     fitnessTimerStartedAt: null,
+    azkarMorningSeconds: 0,
+    azkarEveningSeconds: 0,
     notes: "",
   };
 }
@@ -284,6 +291,7 @@ export function WorkLogDashboard({
   userEmail,
   userName,
   onLogout,
+  onStartTour,
   settingsApiBase,
 }: WorkLogDashboardProps) {
   const router = useRouter();
@@ -694,6 +702,7 @@ export function WorkLogDashboard({
             <img
               src="/logo.png"
               alt={title}
+              data-tour="logo"
               className="h-12 w-auto sm:h-14"
             />
             <p className="text-[var(--text-secondary)] text-sm mt-2">
@@ -703,10 +712,22 @@ export function WorkLogDashboard({
               ) : null}
             </p>
           </div>
-          {userEmail || onLogout ? (
+          {userEmail || onLogout || onStartTour ? (
             <div className="flex items-center gap-3">
               {userEmail ? (
                 <p className="text-sm text-[var(--text-secondary)]">{userEmail}</p>
+              ) : null}
+              {onStartTour ? (
+                <button
+                  type="button"
+                  onClick={onStartTour}
+                  data-tour="tour-btn"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold hover:bg-white/10"
+                  title="Take a quick tour of the app"
+                >
+                  <HelpCircle className="h-4 w-4 text-[var(--accent-cyan)]" />
+                  Tour
+                </button>
               ) : null}
               {onLogout ? (
                 <button
@@ -728,24 +749,28 @@ export function WorkLogDashboard({
         ) : null}
 
         {settingsEnabled && settings ? (
-          <PersonTabs
-            people={settings.people}
-            activePersonId={activePersonId}
-            onSelect={setActivePersonId}
-            onManage={() => setShowSettingsModal(true)}
-          />
+          <div data-tour="person-tabs">
+            <PersonTabs
+              people={settings.people}
+              activePersonId={activePersonId}
+              onSelect={setActivePersonId}
+              onManage={() => setShowSettingsModal(true)}
+            />
+          </div>
         ) : null}
 
         {settingsEnabled && settings ? (
-          <DailyGoalProgress
-            totalSeconds={stats.todayTotalSecs}
-            goalMinutes={settings.dailyGoalMinutes}
-            onEditGoal={() => setShowSettingsModal(true)}
-          />
+          <div data-tour="daily-goal">
+            <DailyGoalProgress
+              totalSeconds={stats.todayTotalSecs}
+              goalMinutes={settings.dailyGoalMinutes}
+              onEditGoal={() => setShowSettingsModal(true)}
+            />
+          </div>
         ) : null}
 
         {/* Stats row */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div data-tour="stats" className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           {[
             {
               label: "Today (total)",
@@ -784,14 +809,16 @@ export function WorkLogDashboard({
         </div>
 
         {settingsEnabled && settings ? (
-          <TaskTemplatesPanel
-            templates={settings.taskTemplates}
-            todayTaskTexts={todayTaskTexts}
-            busy={busy}
-            onApply={applyTemplate}
-            onApplyAll={applyAllTemplates}
-            onManage={() => setShowSettingsModal(true)}
-          />
+          <div data-tour="templates">
+            <TaskTemplatesPanel
+              templates={settings.taskTemplates}
+              todayTaskTexts={todayTaskTexts}
+              busy={busy}
+              onApply={applyTemplate}
+              onApplyAll={applyAllTemplates}
+              onManage={() => setShowSettingsModal(true)}
+            />
+          </div>
         ) : null}
 
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
@@ -816,12 +843,15 @@ export function WorkLogDashboard({
             workSessionSecs={runningSessionSecs}
             deenSessionSecs={deenRunningSessionSecs}
             fitnessSessionSecs={fitnessRunningSessionSecs}
+            azkarMorningSeconds={today.azkarMorningSeconds ?? 0}
+            azkarEveningSeconds={today.azkarEveningSeconds ?? 0}
             personId={activePersonId}
             onPatch={patchDayForPlans}
           />
         </motion.div>
 
         <motion.section
+          data-tour="notes"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
@@ -856,6 +886,7 @@ export function WorkLogDashboard({
 
         {/* Chart */}
         <motion.section
+          data-tour="chart"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
@@ -959,6 +990,7 @@ export function WorkLogDashboard({
 
         {/* History */}
         <motion.section
+          data-tour="history"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}

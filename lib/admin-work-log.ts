@@ -52,8 +52,8 @@ export type AdminWorkLogDoc = {
   /** Non-null while the fitness timer is running. */
   fitnessTimerStartedAt?: Date | null;
   azkarProgress?: {
-    morning?: { tickedIds: string[] };
-    evening?: { tickedIds: string[] };
+    morning?: { tickedIds: string[]; secondsSpent?: number };
+    evening?: { tickedIds: string[]; secondsSpent?: number };
   };
   notes?: string;
   createdAt: Date;
@@ -105,6 +105,10 @@ export type SerializedWorkLogDay = {
   fitnessTasks: SerializedWorkLogTask[];
   fitnessMinutes: number;
   fitnessTimerStartedAt: string | null;
+  /** Time spent reading morning adhkār today, in seconds. */
+  azkarMorningSeconds: number;
+  /** Time spent reading evening adhkār today, in seconds. */
+  azkarEveningSeconds: number;
   notes: string;
 };
 
@@ -153,8 +157,14 @@ export function serializeWorkLogDay(doc: AdminWorkLogDoc): SerializedWorkLogDay 
     fitnessTimerStartedAt: doc.fitnessTimerStartedAt
       ? doc.fitnessTimerStartedAt.toISOString()
       : null,
+    azkarMorningSeconds: azkarSeconds(doc.azkarProgress?.morning?.secondsSpent),
+    azkarEveningSeconds: azkarSeconds(doc.azkarProgress?.evening?.secondsSpent),
     notes: doc.notes ?? "",
   };
+}
+
+function azkarSeconds(value: number | undefined): number {
+  return typeof value === "number" && value > 0 ? Math.round(value) : 0;
 }
 
 /** Empty shell returned for days that have no document yet. */
@@ -172,6 +182,8 @@ export function emptyWorkLogDay(dateKey: string): SerializedWorkLogDay {
     fitnessTasks: [],
     fitnessMinutes: 0,
     fitnessTimerStartedAt: null,
+    azkarMorningSeconds: 0,
+    azkarEveningSeconds: 0,
     notes: "",
   };
 }

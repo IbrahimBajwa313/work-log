@@ -4,6 +4,7 @@ import type { Db } from "mongodb";
 import { isValidDateKey } from "@/lib/admin-work-log";
 import type { AzkarPeriod } from "@/lib/azkar";
 import {
+  addAzkarSeconds,
   buildAzkarResponse,
   ensureAzkarOnDayDoc,
   toggleAzkarAdhkar,
@@ -29,10 +30,17 @@ function parsePeriod(value: string): AzkarPeriod | null {
   return PERIODS.includes(value as AzkarPeriod) ? (value as AzkarPeriod) : null;
 }
 
-const patchSchema = z.object({
-  action: z.literal("toggle"),
-  adhkarId: z.string().min(1),
-});
+const patchSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("toggle"),
+    adhkarId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("addTime"),
+    // Cap a single flush so a stale/background tab can't inflate totals.
+    seconds: z.number().int().min(1).max(3600),
+  }),
+]);
 
 async function getOrSeedDay(db: Db, userId: string, personId: string, dateKey: string) {
   const coll = db.collection<UserWorkLogDoc>(userWorkLogCollection);
@@ -151,6 +159,33 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
     }
 
     const now = new Date();
+
+    if (body.action === "addTime") {
+      const { secondsSpent } = await addAzkarSeconds(
+        coll,
+        dayFilter,
+        doc,
+        period,
+        body.seconds,
+        now
+      );
+      return NextResponse.json({
+        ...buildAzkarResponse(
+          {
+            ...doc,
+            azkarProgress: {
+              ...doc.azkarProgress,
+              [period]: {
+                tickedIds: doc.azkarProgress?.[period]?.tickedIds ?? [],
+                secondsSpent,
+              },
+            },
+          },
+          period
+        ),
+      });
+    }
+
     const result = await toggleAzkarAdhkar(coll, dayFilter, doc, period, body.adhkarId, now);
 
     return NextResponse.json({
@@ -159,7 +194,10 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
           ...doc,
           azkarProgress: {
             ...doc.azkarProgress,
-            [period]: { tickedIds: result.tickedIds },
+            [period]: {
+              tickedIds: result.tickedIds,
+              secondsSpent: doc.azkarProgress?.[period]?.secondsSpent,
+            },
           },
         },
         period

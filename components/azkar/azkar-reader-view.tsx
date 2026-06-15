@@ -1,14 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
+  ArrowRight,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Circle,
+  Clock,
   Loader2,
   Moon,
   Sun,
@@ -23,7 +25,18 @@ type AzkarApiState = {
   complete: boolean;
   total: number;
   read: number;
+  secondsSpent: number;
 };
+
+function formatDuration(totalSeconds: number): string {
+  const safe = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(safe / 3600);
+  const m = Math.floor((safe % 3600) / 60);
+  const s = safe % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
 
 function localDateKey(d = new Date()): string {
   const y = d.getFullYear();
@@ -136,6 +149,52 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
+  // Reading-time tracking. `baseSeconds` is the server total at load time;
+  // `sessionSeconds` is the time accrued (while the tab is visible) this visit.
+  const [baseSeconds, setBaseSeconds] = useState(0);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const baseLoadedRef = useRef(false);
+  const sessionElapsedRef = useRef(0);
+  const pendingRef = useRef(0);
+  const flushingRef = useRef(false);
+
+  const flushPending = useCallback(
+    (useBeacon: boolean) => {
+      const secs = Math.min(3600, Math.floor(pendingRef.current));
+      if (secs < 1) return;
+      if (flushingRef.current && !useBeacon) return;
+      pendingRef.current -= secs;
+
+      const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
+      const url = `/api/work-log/${dateKey}/azkar/${period}${qs}`;
+      const payload = JSON.stringify({ action: "addTime", seconds: secs });
+
+      if (useBeacon && typeof navigator !== "undefined" && navigator.sendBeacon) {
+        navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }));
+        return;
+      }
+
+      flushingRef.current = true;
+      void fetch(url, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        keepalive: true,
+      })
+        .then((res) => {
+          if (!res.ok) pendingRef.current += secs;
+        })
+        .catch(() => {
+          pendingRef.current += secs;
+        })
+        .finally(() => {
+          flushingRef.current = false;
+        });
+    },
+    [dateKey, period, personId]
+  );
+
   const load = useCallback(async () => {
     setError("");
     setLoading(true);
@@ -152,13 +211,19 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
             : "Failed to load"
         );
       }
+      const secondsSpent = (data as AzkarApiState).secondsSpent ?? 0;
       setState({
         items: (data as AzkarApiState).items,
         tickedIds: (data as AzkarApiState).tickedIds ?? [],
         complete: Boolean((data as AzkarApiState).complete),
         total: (data as AzkarApiState).total ?? 0,
         read: (data as AzkarApiState).read ?? 0,
+        secondsSpent,
       });
+      if (!baseLoadedRef.current) {
+        baseLoadedRef.current = true;
+        setBaseSeconds(secondsSpent);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : `Failed to load ${period} azkar`);
     } finally {
@@ -169,6 +234,55 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   useEffect(() => {
     if (ready && isAuthenticated) void load();
   }, [ready, isAuthenticated, load]);
+
+  // Count reading time only while the tab is visible; flush periodically and
+  // when the page is hidden, navigated away, or unmounted.
+  useEffect(() => {
+    if (!ready || !isAuthenticated) return;
+
+    let last = Date.now();
+    const countId = setInterval(() => {
+      const now = Date.now();
+      const visible =
+        typeof document === "undefined" || document.visibilityState === "visible";
+      if (visible) {
+        // Clamp to guard against device sleep / throttled timers.
+        const delta = Math.min(5, (now - last) / 1000);
+        sessionElapsedRef.current += delta;
+        pendingRef.current += delta;
+        setSessionSeconds(Math.floor(sessionElapsedRef.current));
+      }
+      last = now;
+    }, 1000);
+
+    const flushId = setInterval(() => flushPending(false), 30000);
+
+    const onVisibility = () => {
+      last = Date.now();
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        flushPending(true);
+      }
+    };
+    const onPageHide = () => flushPending(true);
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+
+    return () => {
+      clearInterval(countId);
+      clearInterval(flushId);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      flushPending(true);
+    };
+  }, [ready, isAuthenticated, flushPending]);
+
+  const totalSecondsSpent = baseSeconds + sessionSeconds;
+
+  const goBackToWork = useCallback(() => {
+    flushPending(true);
+    router.push("/?tab=deen");
+  }, [flushPending, router]);
 
   const tickedSet = useMemo(() => new Set(state?.tickedIds ?? []), [state?.tickedIds]);
 
@@ -190,6 +304,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
         complete: Boolean((data as AzkarApiState).complete),
         total: (data as AzkarApiState).total ?? 0,
         read: (data as AzkarApiState).read ?? 0,
+        secondsSpent: (data as AzkarApiState).secondsSpent ?? state?.secondsSpent ?? 0,
       });
     } catch {
       setError("Could not save progress. Try again.");
@@ -226,7 +341,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 pt-8">
         <button
           type="button"
-          onClick={() => router.push("/")}
+          onClick={goBackToWork}
           className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-white mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -254,12 +369,18 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
                 </span>{" "}
                 adhkār read
               </p>
-              {state.complete ? (
-                <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${config.accentText} border-current/40 bg-white/5`}>
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  {config.completeLabel}
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--card-border)] bg-white/5 px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
+                  <Clock className="w-3.5 h-3.5" />
+                  {formatDuration(totalSecondsSpent)}
                 </span>
-              ) : null}
+                {state.complete ? (
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${config.accentText} border-current/40 bg-white/5`}>
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {config.completeLabel}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="mt-3 h-2 rounded-full bg-white/10 overflow-hidden">
               <div
@@ -298,6 +419,35 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
                 config={config}
               />
             ))}
+
+            {state && state.items.length > 0 ? (
+              <div className="mt-8 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]/80 p-6 text-center">
+                {state.complete ? (
+                  <p className={`mb-1 inline-flex items-center justify-center gap-1.5 text-sm font-bold ${config.accentText}`}>
+                    <CheckCircle2 className="w-4 h-4" />
+                    {config.completeLabel}
+                  </p>
+                ) : (
+                  <p className="mb-1 text-sm font-semibold text-white">
+                    You&apos;ve reached the end of the {config.label.split("· ")[1] ?? ""} adhkār.
+                  </p>
+                )}
+                <p className="mb-4 inline-flex items-center justify-center gap-1.5 text-xs text-[var(--text-secondary)]">
+                  <Clock className="w-3.5 h-3.5" />
+                  Time spent: {formatDuration(totalSecondsSpent)}
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    onClick={goBackToWork}
+                    className={`inline-flex items-center gap-2 rounded-md px-5 py-2.5 text-sm font-extrabold bg-gradient-to-r ${config.progressFrom} ${config.progressTo} text-[#06120c]`}
+                  >
+                    Back to Work Log
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

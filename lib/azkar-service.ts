@@ -2,9 +2,11 @@ import type { Collection, Filter, UpdateFilter } from "mongodb";
 import { syncLegacyTaskFields, type WorkLogPlan } from "@/lib/work-log-plans";
 import type { AdminWorkLogDoc } from "@/lib/admin-work-log";
 import {
+  addAzkarSecondsToProgress,
   AZKAR_EVENING_TASK_ID,
   AZKAR_MORNING_TASK_ID,
   ensureAzkarSubTasksOnDoc,
+  getAzkarSecondsSpent,
   getAzkarTickedIds,
   isAzkarComplete,
   newAzkarProgress,
@@ -77,9 +79,32 @@ export function buildAzkarResponse(doc: AdminWorkLogDoc, period: AzkarPeriod) {
     tickedIds,
     complete,
     taskDone,
+    secondsSpent: getAzkarSecondsSpent(doc, period),
     total: items.length,
     read: tickedIds.length,
   };
+}
+
+/** Adds elapsed reading time (in seconds) to the period's accumulated total. */
+export async function addAzkarSeconds<T extends AdminWorkLogDoc>(
+  coll: Collection<T>,
+  dayFilter: Filter<T>,
+  doc: T,
+  period: AzkarPeriod,
+  seconds: number,
+  now: Date
+): Promise<{ secondsSpent: number }> {
+  const safeSeconds = Math.max(0, Math.round(seconds));
+  const progress = addAzkarSecondsToProgress(doc.azkarProgress, period, safeSeconds);
+
+  await coll.updateOne(dayFilter, {
+    $set: {
+      azkarProgress: progress,
+      updatedAt: now,
+    },
+  } as UpdateFilter<T>);
+
+  return { secondsSpent: progress[period]?.secondsSpent ?? 0 };
 }
 
 export async function toggleAzkarAdhkar<T extends AdminWorkLogDoc>(

@@ -11,9 +11,15 @@ export const AZKAR_EVENING_TASK_ID = "azkar-evening";
 
 export type AzkarPeriod = "morning" | "evening";
 
+export type AzkarPeriodProgress = {
+  tickedIds: string[];
+  /** Accumulated reading time on the azkar page, in seconds. */
+  secondsSpent?: number;
+};
+
 export type AzkarProgress = {
-  morning?: { tickedIds: string[] };
-  evening?: { tickedIds: string[] };
+  morning?: AzkarPeriodProgress;
+  evening?: AzkarPeriodProgress;
 };
 
 export type AdhkarItem = {
@@ -69,6 +75,11 @@ export function getAzkarTickedIds(doc: AdminWorkLogDoc, period: AzkarPeriod): st
   return doc.azkarProgress?.[period]?.tickedIds ?? [];
 }
 
+export function getAzkarSecondsSpent(doc: AdminWorkLogDoc, period: AzkarPeriod): number {
+  const secs = doc.azkarProgress?.[period]?.secondsSpent;
+  return typeof secs === "number" && secs > 0 ? Math.round(secs) : 0;
+}
+
 export function setAzkarTaskDone(plans: WorkLogPlan[], taskId: string, done: boolean): WorkLogPlan[] {
   const deenIdx = plans.findIndex((p) => p.kind === "deen");
   if (deenIdx < 0) return plans;
@@ -86,7 +97,24 @@ export function newAzkarProgress(
 ): AzkarProgress {
   return {
     ...current,
-    [period]: { tickedIds },
+    [period]: { ...current?.[period], tickedIds },
+  };
+}
+
+/** Returns updated progress with `seconds` added to the period's accumulated time. */
+export function addAzkarSecondsToProgress(
+  current: AzkarProgress | undefined,
+  period: AzkarPeriod,
+  seconds: number
+): AzkarProgress {
+  const prev = current?.[period];
+  const base = typeof prev?.secondsSpent === "number" ? prev.secondsSpent : 0;
+  return {
+    ...current,
+    [period]: {
+      tickedIds: prev?.tickedIds ?? [],
+      secondsSpent: Math.max(0, Math.round(base + seconds)),
+    },
   };
 }
 
