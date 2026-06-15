@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Eye, EyeOff, Loader2, Lock } from "lucide-react";
+import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { WorkLogDashboard } from "@/components/work-log/work-log-dashboard";
 import {
   useWorkLogSessionGate,
@@ -60,10 +60,12 @@ export default function HomePage() {
         <div className="w-full max-w-md">
           <div className="bg-[var(--card-bg)]/90 border border-[var(--card-border)] rounded-xl p-8">
             <div className="mb-6 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--card-border)] bg-white/5">
-                <Lock className="h-6 w-6 text-[var(--accent-cyan)]" />
-              </div>
-              <h1 className="text-2xl font-extrabold text-white">WorkLog</h1>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo.png"
+                alt="Work Logging by TechCognify"
+                className="mx-auto mb-4 h-14 w-auto"
+              />
               <p className="text-[var(--text-secondary)] text-sm mt-2">
                 Create a free account to track your daily work, tasks, and goals.
               </p>
@@ -179,10 +181,8 @@ export default function HomePage() {
       apiBase="/api/work-log"
       settingsApiBase="/api/work-log/settings"
       authorizedInit={authorizedInit}
-      backHref="/"
-      backLabel="Home"
-      title="WorkLog"
-      subtitle="Track business work, Ilme Deen, tasks & goals"
+      title="Work Logging"
+      subtitle="Track business work, Deen, fitness, tasks & goals"
       userEmail={user?.email}
       userName={user?.name}
       onLogout={logout}

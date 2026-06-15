@@ -2,11 +2,12 @@ import { randomUUID } from "crypto";
 import type { AdminWorkLogDoc, AdminWorkLogTask, WorkLogPriority } from "@/lib/admin-work-log";
 import { WORK_LOG_PRIORITIES } from "@/lib/admin-work-log";
 
-export const PLAN_KINDS = ["work", "deen", "custom"] as const;
+export const PLAN_KINDS = ["work", "deen", "fitness", "custom"] as const;
 export type WorkLogPlanKind = (typeof PLAN_KINDS)[number];
 
 export const DEFAULT_WORK_PLAN_ID = "plan-work";
 export const DEFAULT_DEEN_PLAN_ID = "plan-deen";
+export const DEFAULT_FITNESS_PLAN_ID = "plan-fitness";
 
 export type WorkLogPlan = {
   id: string;
@@ -55,9 +56,17 @@ function serializeSubTask(t: AdminWorkLogTask) {
 }
 
 export function serializePlan(plan: WorkLogPlan): SerializedWorkLogPlan {
+  const kind: WorkLogPlanKind =
+    plan.kind === "deen"
+      ? "deen"
+      : plan.kind === "fitness"
+        ? "fitness"
+        : plan.kind === "custom"
+          ? "custom"
+          : "work";
   return {
     id: plan.id,
-    kind: plan.kind === "deen" ? "deen" : plan.kind === "custom" ? "custom" : "work",
+    kind,
     title: plan.title,
     priority: WORK_LOG_PRIORITIES.includes(plan.priority) ? plan.priority : "medium",
     estimateMinutes:
@@ -88,27 +97,65 @@ export function createDefaultPlans(now = new Date()): WorkLogPlan[] {
     {
       id: DEFAULT_DEEN_PLAN_ID,
       kind: "deen",
-      title: "Ilme Deen",
+      title: "Deen",
       priority: "high",
       estimateMinutes: null,
       order: 1,
       subTasks: [],
       createdAt: now,
     },
+    {
+      id: DEFAULT_FITNESS_PLAN_ID,
+      kind: "fitness",
+      title: "Fitness",
+      priority: "high",
+      estimateMinutes: null,
+      order: 2,
+      subTasks: [],
+      createdAt: now,
+    },
   ];
+}
+
+function ensureCorePlans(plans: WorkLogPlan[], doc: AdminWorkLogDoc): WorkLogPlan[] {
+  const now = new Date();
+  let next = [...plans].sort((a, b) => a.order - b.order);
+
+  const deenIdx = next.findIndex((p) => p.id === DEFAULT_DEEN_PLAN_ID);
+  if (deenIdx >= 0 && next[deenIdx].title === "Ilme Deen") {
+    next[deenIdx] = { ...next[deenIdx], title: "Deen" };
+  }
+
+  if (!next.some((p) => p.id === DEFAULT_FITNESS_PLAN_ID)) {
+    next.push({
+      id: DEFAULT_FITNESS_PLAN_ID,
+      kind: "fitness",
+      title: "Fitness",
+      priority: "high",
+      estimateMinutes: null,
+      order: 2,
+      subTasks: [...(doc.fitnessTasks ?? [])],
+      createdAt: now,
+    });
+    next = next.sort((a, b) => a.order - b.order);
+  }
+
+  return next;
 }
 
 /** Build plans from stored `plans` or legacy `tasks` / `deenTasks`. */
 export function resolvePlansFromDoc(doc: AdminWorkLogDoc): WorkLogPlan[] {
   if (doc.plans?.length) {
-    return [...doc.plans].sort((a, b) => a.order - b.order);
+    return ensureCorePlans(doc.plans, doc);
   }
   const now = new Date();
   const defaults = createDefaultPlans(now);
   const work = defaults.find((p) => p.id === DEFAULT_WORK_PLAN_ID)!;
   const deen = defaults.find((p) => p.id === DEFAULT_DEEN_PLAN_ID)!;
+  const fitness = defaults.find((p) => p.id === DEFAULT_FITNESS_PLAN_ID)!;
   work.subTasks = [...(doc.tasks ?? [])];
   deen.subTasks = [...(doc.deenTasks ?? [])];
+  fitness.subTasks = [...(doc.fitnessTasks ?? [])];
   return defaults;
 }
 
@@ -116,27 +163,35 @@ export function resolvePlansFromDoc(doc: AdminWorkLogDoc): WorkLogPlan[] {
 export function syncLegacyTaskFields(plans: WorkLogPlan[]): {
   tasks: AdminWorkLogTask[];
   deenTasks: AdminWorkLogTask[];
+  fitnessTasks: AdminWorkLogTask[];
 } {
   const work = plans.find((p) => p.kind === "work");
   const deen = plans.find((p) => p.kind === "deen");
+  const fitness = plans.find((p) => p.kind === "fitness");
   return {
     tasks: work?.subTasks ?? [],
     deenTasks: deen?.subTasks ?? [],
+    fitnessTasks: fitness?.subTasks ?? [],
   };
 }
 
 export function findPlan(
   plans: WorkLogPlan[],
-  opts: { planId?: string; list?: "work" | "deen" }
+  opts: { planId?: string; list?: "work" | "deen" | "fitness" }
 ): WorkLogPlan | undefined {
   if (opts.planId) return plans.find((p) => p.id === opts.planId);
   if (opts.list === "deen") return plans.find((p) => p.kind === "deen");
+  if (opts.list === "fitness") return plans.find((p) => p.kind === "fitness");
   if (opts.list === "work") return plans.find((p) => p.kind === "work");
   return undefined;
 }
 
 export function isCorePlan(planId: string): boolean {
-  return planId === DEFAULT_WORK_PLAN_ID || planId === DEFAULT_DEEN_PLAN_ID;
+  return (
+    planId === DEFAULT_WORK_PLAN_ID ||
+    planId === DEFAULT_DEEN_PLAN_ID ||
+    planId === DEFAULT_FITNESS_PLAN_ID
+  );
 }
 
 export function nextPlanOrder(plans: WorkLogPlan[]): number {

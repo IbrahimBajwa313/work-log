@@ -12,6 +12,7 @@ import { isValidDateKey } from "@/lib/admin-work-log";
 import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
 import { getWorklogSessionFromRequest } from "@/lib/worklog-auth";
 import { applyUserWorkLogAction, workLogActionSchema } from "@/lib/work-log-mutations";
+import { ensureAzkarOnDayDoc } from "@/lib/azkar-service";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,19 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
       doc = await db
         .collection<UserWorkLogDoc>(userWorkLogCollection)
         .findOne({ userId: session.sub, personId: { $exists: false }, dateKey: params.date });
+    }
+
+    if (doc) {
+      const coll = db.collection<UserWorkLogDoc>(userWorkLogCollection);
+      const dayFilter = {
+        userId: session.sub,
+        personId: doc.personId ?? personId,
+        dateKey: params.date,
+      };
+      const ensured = await ensureAzkarOnDayDoc(coll, dayFilter, doc, new Date());
+      if (ensured) {
+        doc = ensured as typeof doc;
+      }
     }
 
     return NextResponse.json({

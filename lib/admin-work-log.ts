@@ -39,12 +39,22 @@ export type AdminWorkLogDoc = {
   tasks: AdminWorkLogTask[];
   /** Daily plans (Business, Ilme Deen, custom) each with sub-tasks. */
   plans?: WorkLogPlan[];
-  /** Separate daily checklist for Ilme Deen (religious learning) progress. */
+  /** Separate daily checklist for Deen progress. */
   deenTasks?: AdminWorkLogTask[];
-  /** Accumulated Ilme Deen time in minutes (separate from work time). */
+  /** Accumulated Deen time in minutes (separate from work time). */
   deenMinutes?: number;
-  /** Non-null while the Ilme Deen timer is running. */
+  /** Non-null while the Deen timer is running. */
   deenTimerStartedAt?: Date | null;
+  /** Separate daily checklist for fitness progress. */
+  fitnessTasks?: AdminWorkLogTask[];
+  /** Accumulated fitness time in minutes. */
+  fitnessMinutes?: number;
+  /** Non-null while the fitness timer is running. */
+  fitnessTimerStartedAt?: Date | null;
+  azkarProgress?: {
+    morning?: { tickedIds: string[] };
+    evening?: { tickedIds: string[] };
+  };
   notes?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -92,6 +102,9 @@ export type SerializedWorkLogDay = {
   deenTasks: SerializedWorkLogTask[];
   deenMinutes: number;
   deenTimerStartedAt: string | null;
+  fitnessTasks: SerializedWorkLogTask[];
+  fitnessMinutes: number;
+  fitnessTimerStartedAt: string | null;
   notes: string;
 };
 
@@ -135,6 +148,11 @@ export function serializeWorkLogDay(doc: AdminWorkLogDoc): SerializedWorkLogDay 
     deenTimerStartedAt: doc.deenTimerStartedAt
       ? doc.deenTimerStartedAt.toISOString()
       : null,
+    fitnessTasks: legacy.fitnessTasks.map(serializeTask),
+    fitnessMinutes: doc.fitnessMinutes ?? 0,
+    fitnessTimerStartedAt: doc.fitnessTimerStartedAt
+      ? doc.fitnessTimerStartedAt.toISOString()
+      : null,
     notes: doc.notes ?? "",
   };
 }
@@ -151,6 +169,9 @@ export function emptyWorkLogDay(dateKey: string): SerializedWorkLogDay {
     deenTasks: [],
     deenMinutes: 0,
     deenTimerStartedAt: null,
+    fitnessTasks: [],
+    fitnessMinutes: 0,
+    fitnessTimerStartedAt: null,
     notes: "",
   };
 }

@@ -26,13 +26,17 @@ import {
   type WorkLogPlan,
 } from "@/lib/work-log-plans";
 
-/** "work" → business plan, "deen" → Ilme Deen plan. */
-const TASK_LISTS = ["work", "deen"] as const;
+/** "work" → business plan, "deen" → Deen plan, "fitness" → fitness plan. */
+const TASK_LISTS = ["work", "deen", "fitness"] as const;
 
 function timerFields(list?: (typeof TASK_LISTS)[number]): TimerFields {
-  return list === "deen"
-    ? { minutes: "deenMinutes", startedAt: "deenTimerStartedAt" }
-    : { minutes: "totalMinutes", startedAt: "timerStartedAt" };
+  if (list === "deen") {
+    return { minutes: "deenMinutes", startedAt: "deenTimerStartedAt" };
+  }
+  if (list === "fitness") {
+    return { minutes: "fitnessMinutes", startedAt: "fitnessTimerStartedAt" };
+  }
+  return { minutes: "totalMinutes", startedAt: "timerStartedAt" };
 }
 
 export const workLogActionSchema = z.discriminatedUnion("action", [
@@ -116,6 +120,7 @@ async function persistDayPlans<T extends AdminWorkLogDoc>(
       plans,
       tasks: legacy.tasks,
       deenTasks: legacy.deenTasks,
+      fitnessTasks: legacy.fitnessTasks,
       updatedAt: now,
     },
   } as UpdateFilter<T>);
@@ -247,8 +252,8 @@ function applyPlanMutation(
 }
 
 type TimerFields = {
-  minutes: "totalMinutes" | "deenMinutes";
-  startedAt: "timerStartedAt" | "deenTimerStartedAt";
+  minutes: "totalMinutes" | "deenMinutes" | "fitnessMinutes";
+  startedAt: "timerStartedAt" | "deenTimerStartedAt" | "fitnessTimerStartedAt";
 };
 
 async function finalizeRunningTimers<T extends AdminWorkLogDoc>(
@@ -292,6 +297,9 @@ async function getOrCreateAdminDay(
         deenTasks: [],
         deenMinutes: 0,
         deenTimerStartedAt: null,
+        fitnessTasks: [],
+        fitnessMinutes: 0,
+        fitnessTimerStartedAt: null,
         notes: "",
         createdAt: now,
         updatedAt: now,
@@ -324,6 +332,9 @@ async function getOrCreateUserDay(
         deenTasks: [],
         deenMinutes: 0,
         deenTimerStartedAt: null,
+        fitnessTasks: [],
+        fitnessMinutes: 0,
+        fitnessTimerStartedAt: null,
         notes: "",
         createdAt: now,
         updatedAt: now,

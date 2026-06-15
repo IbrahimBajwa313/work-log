@@ -1,4 +1,4 @@
-# WorkLog
+# Work Logging
 
 Standalone daily productivity & time-tracking app.
 

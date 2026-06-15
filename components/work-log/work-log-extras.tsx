@@ -289,7 +289,7 @@ export function WorkLogSettingsModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#0b1414] border border-[var(--card-border)] rounded-xl p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-white">WorkLog settings</h2>
+          <h2 className="text-xl font-bold text-white">Work Logging settings</h2>
           <button type="button" onClick={onClose} className="text-[var(--text-secondary)] hover:text-white">
             <X className="w-5 h-5" />
           </button>
@@ -356,7 +356,7 @@ export function WorkLogSettingsModal({
             Daily combined goal
           </h3>
           <p className="text-xs text-[var(--text-secondary)] mb-3">
-            Work + Ilme Deen time counted together toward this target.
+            Work, Deen, and fitness time counted together toward this target.
           </p>
           <div className="flex items-end gap-2">
             <div className="w-16">
@@ -454,7 +454,7 @@ export function WorkLogSettingsModal({
                     : "border-[var(--card-border)] bg-white/5 text-[var(--text-secondary)]"
                 }`}
               >
-                {newTemplateList === "deen" ? "Ilme Deen" : "Business"}
+                {newTemplateList === "deen" ? "Deen" : "Business"}
               </button>
               <input
                 type="number"

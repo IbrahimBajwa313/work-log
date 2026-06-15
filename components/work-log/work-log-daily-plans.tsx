@@ -1,21 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Briefcase,
   CheckCircle2,
   Circle,
   Clock,
+  Dumbbell,
   Moon,
   Pause,
   Pencil,
   Play,
   Plus,
+  Sparkles,
+  Sun,
   Trash2,
   X,
 } from "lucide-react";
+import { AZKAR_EVENING_TASK_ID, AZKAR_MORNING_TASK_ID } from "@/lib/azkar";
 import {
   DEFAULT_DEEN_PLAN_ID,
+  DEFAULT_FITNESS_PLAN_ID,
   DEFAULT_WORK_PLAN_ID,
   type SerializedWorkLogPlan,
 } from "@/lib/work-log-plans";
@@ -91,10 +97,14 @@ export type DailyPlansSectionProps = {
   nowMs: number;
   workSeconds: number;
   deenSeconds: number;
+  fitnessSeconds: number;
   workTimerRunning: boolean;
   deenTimerRunning: boolean;
+  fitnessTimerRunning: boolean;
   workSessionSecs: number;
   deenSessionSecs: number;
+  fitnessSessionSecs: number;
+  personId?: string;
   onPatch: (body: Record<string, unknown>) => Promise<boolean>;
 };
 
@@ -106,12 +116,17 @@ export function DailyPlansSection({
   nowMs,
   workSeconds,
   deenSeconds,
+  fitnessSeconds,
   workTimerRunning,
   deenTimerRunning,
+  fitnessTimerRunning,
   workSessionSecs,
   deenSessionSecs,
+  fitnessSessionSecs,
+  personId = "primary",
   onPatch,
 }: DailyPlansSectionProps) {
+  const [activeCoreTab, setActiveCoreTab] = useState<"work" | "deen" | "fitness">("work");
   const [newPlanTitle, setNewPlanTitle] = useState("");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [editPlanTitle, setEditPlanTitle] = useState("");
@@ -125,6 +140,24 @@ export function DailyPlansSection({
   const [adjustMins, setAdjustMins] = useState<Record<string, string>>({});
 
   const sortedPlans = [...plans].sort((a, b) => a.order - b.order);
+  const corePlans = sortedPlans.filter(
+    (p) => p.kind === "work" || p.kind === "deen" || p.kind === "fitness"
+  );
+  const customPlans = sortedPlans.filter((p) => p.kind === "custom");
+  const visibleCorePlans =
+    activeCoreTab === "work"
+      ? corePlans.filter((p) => p.kind === "work")
+      : activeCoreTab === "deen"
+        ? corePlans.filter((p) => p.kind === "deen")
+        : corePlans.filter((p) => p.kind === "fitness");
+  const plansToRender = [...visibleCorePlans, ...customPlans];
+
+  const timerListForPlan = (plan: SerializedWorkLogPlan): "work" | "deen" | "fitness" | null => {
+    if (plan.kind === "work") return "work";
+    if (plan.kind === "deen") return "deen";
+    if (plan.kind === "fitness") return "fitness";
+    return null;
+  };
 
   const parseEst = (planId: string) => {
     const h = Number.parseInt(newSubEstH[planId] || "0", 10);
@@ -133,8 +166,15 @@ export function DailyPlansSection({
   };
 
   const planAccent = (plan: SerializedWorkLogPlan) => {
-    if (plan.kind === "deen") return { border: "border-emerald-400/25", icon: Moon, color: "#34d399", btn: "bg-emerald-400 text-[#06120c]" };
-    if (plan.kind === "work") return { border: "border-[var(--card-border)]", icon: Briefcase, color: "var(--accent-cyan)", btn: "bg-[var(--accent-cyan)] text-[#070d0d]" };
+    if (plan.kind === "deen") {
+      return { border: "border-emerald-400/25", icon: Moon, color: "#34d399", btn: "bg-emerald-400 text-[#06120c]" };
+    }
+    if (plan.kind === "fitness") {
+      return { border: "border-orange-400/25", icon: Dumbbell, color: "#fb923c", btn: "bg-orange-400 text-[#140a06]" };
+    }
+    if (plan.kind === "work") {
+      return { border: "border-[var(--card-border)]", icon: Briefcase, color: "var(--accent-cyan)", btn: "bg-[var(--accent-cyan)] text-[#070d0d]" };
+    }
     return { border: "border-violet-400/25", icon: ListIcon, color: "#a78bfa", btn: "bg-violet-400 text-[#0d0614]" };
   };
 
@@ -179,7 +219,8 @@ export function DailyPlansSection({
   };
 
   const applyAdjust = async (plan: SerializedWorkLogPlan, mode: "add" | "set", sign: 1 | -1 = 1) => {
-    if (plan.kind !== "work" && plan.kind !== "deen") return;
+    const list = timerListForPlan(plan);
+    if (!list) return;
     const h = Number.parseInt(adjustHours[plan.id] || "0", 10);
     const m = Number.parseInt(adjustMins[plan.id] || "0", 10);
     if (!Number.isFinite(h) || !Number.isFinite(m)) return;
@@ -189,7 +230,7 @@ export function DailyPlansSection({
       action: "adjustMinutes",
       mode,
       minutes,
-      list: plan.kind === "deen" ? "deen" : "work",
+      list,
     });
     if (ok) {
       setAdjustHours((s) => ({ ...s, [plan.id]: "" }));
@@ -203,7 +244,7 @@ export function DailyPlansSection({
         <div>
           <h2 className="text-lg font-bold text-white">Daily plans</h2>
           <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-            Business and Ilme Deen first — each plan has sub-tasks you can add or edit.
+            Business, Deen, and Fitness — each plan has sub-tasks you can add or edit.
           </p>
         </div>
         <form onSubmit={addCustomPlan} className="flex gap-2">
@@ -226,19 +267,54 @@ export function DailyPlansSection({
         </form>
       </div>
 
-      {sortedPlans.map((plan, index) => {
+      <div className="flex rounded-lg border border-[var(--card-border)] bg-white/5 p-1">
+        {(
+          [
+            { id: "work" as const, label: "Business" },
+            { id: "deen" as const, label: "Deen" },
+            { id: "fitness" as const, label: "Fitness" },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveCoreTab(tab.id)}
+            className={`flex-1 rounded-md py-2 text-sm font-semibold transition-colors ${
+              activeCoreTab === tab.id
+                ? "bg-[var(--accent-cyan)] text-[#070d0d]"
+                : "text-[var(--text-secondary)] hover:text-white"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {plansToRender.map((plan, index) => {
         const accent = planAccent(plan);
         const Icon = accent.icon;
-        const done = plan.subTasks.filter((t) => t.done).length;
-        const total = plan.subTasks.length;
-        const planned = plan.subTasks
+        const morningAzkar = plan.subTasks.find((t) => t.id === AZKAR_MORNING_TASK_ID);
+        const eveningAzkar = plan.subTasks.find((t) => t.id === AZKAR_EVENING_TASK_ID);
+        const regularSubTasks = plan.subTasks.filter(
+          (t) => t.id !== AZKAR_MORNING_TASK_ID && t.id !== AZKAR_EVENING_TASK_ID
+        );
+        const doneRegular = regularSubTasks.filter((t) => t.done).length;
+        const planned = regularSubTasks
           .filter((t) => !t.done)
           .reduce((sum, t) => sum + (t.estimateMinutes ?? 0), 0);
-        const hasTimer = plan.kind === "work" || plan.kind === "deen";
-        const timerRunning = plan.kind === "work" ? workTimerRunning : plan.kind === "deen" ? deenTimerRunning : false;
-        const liveSecs = plan.kind === "work" ? workSeconds : plan.kind === "deen" ? deenSeconds : 0;
-        const sessionSecs = plan.kind === "work" ? workSessionSecs : deenSessionSecs;
-        const isCore = plan.id === DEFAULT_WORK_PLAN_ID || plan.id === DEFAULT_DEEN_PLAN_ID;
+        const hasTimer = timerListForPlan(plan) !== null;
+        const list = timerListForPlan(plan);
+        const timerRunning =
+          list === "work" ? workTimerRunning : list === "deen" ? deenTimerRunning : list === "fitness" ? fitnessTimerRunning : false;
+        const liveSecs =
+          list === "work" ? workSeconds : list === "deen" ? deenSeconds : list === "fitness" ? fitnessSeconds : 0;
+        const sessionSecs =
+          list === "work" ? workSessionSecs : list === "deen" ? deenSessionSecs : fitnessSessionSecs;
+        const isCore =
+          plan.id === DEFAULT_WORK_PLAN_ID ||
+          plan.id === DEFAULT_DEEN_PLAN_ID ||
+          plan.id === DEFAULT_FITNESS_PLAN_ID;
+        const azkarQuery = `date=${encodeURIComponent(dateKey)}&personId=${encodeURIComponent(personId)}`;
 
         return (
           <article
@@ -305,7 +381,7 @@ export function DailyPlansSection({
                   <EstimateBadge minutes={plan.estimateMinutes} />
                 </div>
                 <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  {done}/{total} sub-tasks done
+                  {doneRegular}/{regularSubTasks.length} sub-tasks done
                   {planned > 0 ? ` · ${formatEstimate(planned)} remaining` : ""}
                 </p>
               </div>
@@ -321,6 +397,47 @@ export function DailyPlansSection({
                 </button>
               ) : null}
             </div>
+
+            {plan.kind === "deen" ? (
+              <div className="mb-4 grid sm:grid-cols-2 gap-3">
+                <Link
+                  href={`/morning-azkar?${azkarQuery}`}
+                  className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
+                    morningAzkar?.done
+                      ? "border-emerald-400/40 bg-emerald-400/10"
+                      : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
+                  }`}
+                >
+                  {morningAzkar?.done ? (
+                    <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+                  ) : (
+                    <Sun className="w-5 h-5 shrink-0 text-amber-300" />
+                  )}
+                  <div className="min-w-0 text-left">
+                    <p className="font-bold text-white">Morning Azkar</p>
+                    <p className="text-xs text-[var(--text-secondary)]">Read & tick each adhkār</p>
+                  </div>
+                </Link>
+                <Link
+                  href={`/evening-azkar?${azkarQuery}`}
+                  className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
+                    eveningAzkar?.done
+                      ? "border-emerald-400/40 bg-emerald-400/10"
+                      : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
+                  }`}
+                >
+                  {eveningAzkar?.done ? (
+                    <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+                  ) : (
+                    <Sparkles className="w-5 h-5 shrink-0 text-indigo-300" />
+                  )}
+                  <div className="min-w-0 text-left">
+                    <p className="font-bold text-white">Evening Azkar</p>
+                    <p className="text-xs text-[var(--text-secondary)]">Read & tick each adhkār</p>
+                  </div>
+                </Link>
+              </div>
+            ) : null}
 
             {hasTimer ? (
               <div className="mb-4 rounded-lg border border-[var(--card-border)] bg-white/[0.03] p-4">
@@ -338,9 +455,7 @@ export function DailyPlansSection({
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() =>
-                        onPatch({ action: "stopTimer", list: plan.kind === "deen" ? "deen" : "work" })
-                      }
+                      onClick={() => list && onPatch({ action: "stopTimer", list })}
                       className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-400"
                     >
                       <Pause className="w-4 h-4" /> Stop
@@ -349,9 +464,7 @@ export function DailyPlansSection({
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() =>
-                        onPatch({ action: "startTimer", list: plan.kind === "deen" ? "deen" : "work" })
-                      }
+                      onClick={() => list && onPatch({ action: "startTimer", list })}
                       className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-extrabold ${accent.btn}`}
                     >
                       <Play className="w-4 h-4" /> Start
@@ -405,11 +518,11 @@ export function DailyPlansSection({
             <div className="border-t border-[var(--card-border)] pt-4">
               <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-3">Sub-tasks</p>
 
-              {plan.subTasks.length === 0 ? (
+              {regularSubTasks.length === 0 ? (
                 <p className="text-sm text-[var(--text-secondary)] text-center py-4">No sub-tasks yet.</p>
               ) : (
                 <ul className="space-y-2 mb-4">
-                  {sortByPriority(plan.subTasks).map((t) => (
+                  {sortByPriority(regularSubTasks).map((t) => (
                     <li
                       key={t.id}
                       className="flex items-center gap-2 rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-2"

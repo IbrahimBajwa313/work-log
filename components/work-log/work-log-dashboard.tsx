@@ -39,6 +39,7 @@ import { DailyPlansSection } from "@/components/work-log/work-log-daily-plans";
 import {
   createDefaultPlans,
   DEFAULT_DEEN_PLAN_ID,
+  DEFAULT_FITNESS_PLAN_ID,
   DEFAULT_WORK_PLAN_ID,
   serializePlan,
   type SerializedWorkLogPlan,
@@ -48,8 +49,8 @@ import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
 export type WorkLogDashboardProps = {
   apiBase: string;
   authorizedInit: (init?: RequestInit) => RequestInit;
-  backHref: string;
-  backLabel: string;
+  backHref?: string;
+  backLabel?: string;
   title?: string;
   subtitle?: string;
   userEmail?: string;
@@ -147,6 +148,9 @@ type WorkLogDay = {
   deenTasks: WorkLogTask[];
   deenMinutes: number;
   deenTimerStartedAt: string | null;
+  fitnessTasks?: WorkLogTask[];
+  fitnessMinutes?: number;
+  fitnessTimerStartedAt?: string | null;
   notes: string;
 };
 
@@ -167,11 +171,21 @@ function resolveClientPlans(day: WorkLogDay): SerializedWorkLogPlan[] {
     {
       id: DEFAULT_DEEN_PLAN_ID,
       kind: "deen",
-      title: "Ilme Deen",
+      title: "Deen",
       priority: "high",
       estimateMinutes: null,
       order: 1,
       subTasks: day.deenTasks ?? [],
+      createdAt: now,
+    },
+    {
+      id: DEFAULT_FITNESS_PLAN_ID,
+      kind: "fitness",
+      title: "Fitness",
+      priority: "high",
+      estimateMinutes: null,
+      order: 2,
+      subTasks: day.fitnessTasks ?? [],
       createdAt: now,
     },
   ];
@@ -194,6 +208,9 @@ function emptyDay(dateKey: string): WorkLogDay {
     deenTasks: [],
     deenMinutes: 0,
     deenTimerStartedAt: null,
+    fitnessTasks: [],
+    fitnessMinutes: 0,
+    fitnessTimerStartedAt: null,
     notes: "",
   };
 }
@@ -208,7 +225,7 @@ function liveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
   return Math.floor(secs);
 }
 
-/** Live Ilme Deen seconds for a day, including the running deen timer if any. */
+/** Live Deen seconds for a day, including the running deen timer if any. */
 function deenLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
   if (!day) return 0;
   let secs = (day.deenMinutes ?? 0) * 60;
@@ -218,9 +235,19 @@ function deenLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
   return Math.floor(secs);
 }
 
-/** Combined business + Ilme Deen time for a day. */
+/** Live fitness seconds for a day, including the running fitness timer if any. */
+function fitnessLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
+  if (!day) return 0;
+  let secs = (day.fitnessMinutes ?? 0) * 60;
+  if (day.fitnessTimerStartedAt) {
+    secs += Math.max(0, (nowMs - new Date(day.fitnessTimerStartedAt).getTime()) / 1000);
+  }
+  return Math.floor(secs);
+}
+
+/** Combined business + Deen + fitness time for a day. */
 function totalLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  return liveSeconds(day, nowMs) + deenLiveSeconds(day, nowMs);
+  return liveSeconds(day, nowMs) + deenLiveSeconds(day, nowMs) + fitnessLiveSeconds(day, nowMs);
 }
 
 function formatClock(totalSeconds: number): string {
@@ -252,7 +279,7 @@ export function WorkLogDashboard({
   authorizedInit,
   backHref,
   backLabel,
-  title = "Work Log",
+  title = "Work Logging",
   subtitle = "Daily working time & completed tasks",
   userEmail,
   userName,
@@ -291,6 +318,8 @@ export function WorkLogDashboard({
   const timerRunning = Boolean(runningDay);
   const runningDeenDay = useMemo(() => days.find((d) => d.deenTimerStartedAt), [days]);
   const deenTimerRunning = Boolean(runningDeenDay);
+  const runningFitnessDay = useMemo(() => days.find((d) => d.fitnessTimerStartedAt), [days]);
+  const fitnessTimerRunning = Boolean(runningFitnessDay);
 
   const mergeDay = useCallback((day: WorkLogDay) => {
     setDays((prev) => {
@@ -349,6 +378,17 @@ export function WorkLogDashboard({
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  useEffect(() => {
+    if (!settingsEnabled) return;
+    const qs = `?personId=${encodeURIComponent(activePersonId)}`;
+    void Promise.all([
+      fetch(`/api/work-log/${todayKey}/azkar/morning${qs}`, { credentials: "include" }),
+      fetch(`/api/work-log/${todayKey}/azkar/evening${qs}`, { credentials: "include" }),
+    ]).then((results) => {
+      if (results.some((r) => r.ok)) void load();
+    });
+  }, [todayKey, activePersonId, settingsEnabled, load]);
 
   useEffect(() => {
     if (!settings?.people.length) return;
@@ -511,6 +551,7 @@ export function WorkLogDashboard({
     const todayTotalSecs = totalLiveSeconds(byKey.get(todayKey), nowMs);
     const todayWorkSecs = liveSeconds(byKey.get(todayKey), nowMs);
     const todayDeenSecs = deenLiveSeconds(byKey.get(todayKey), nowMs);
+    const todayFitnessSecs = fitnessLiveSeconds(byKey.get(todayKey), nowMs);
 
     let weekSecs = 0;
     for (let i = 0; i < 7; i++) {
@@ -558,6 +599,7 @@ export function WorkLogDashboard({
       todayTotalSecs,
       todayWorkSecs,
       todayDeenSecs,
+      todayFitnessSecs,
       weekSecs,
       monthSecs,
       streak,
@@ -573,6 +615,7 @@ export function WorkLogDashboard({
       label: string;
       business: number;
       deen: number;
+      fitness: number;
       total: number;
     }[] = [];
     for (let i = 13; i >= 0; i--) {
@@ -582,11 +625,13 @@ export function WorkLogDashboard({
       const day = byKey.get(key);
       const business = Math.round((liveSeconds(day, nowMs) / 3600) * 10) / 10;
       const deen = Math.round((deenLiveSeconds(day, nowMs) / 3600) * 10) / 10;
+      const fitness = Math.round((fitnessLiveSeconds(day, nowMs) / 3600) * 10) / 10;
       out.push({
         label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
         business,
         deen,
-        total: Math.round((business + deen) * 10) / 10,
+        fitness,
+        total: Math.round((business + deen + fitness) * 10) / 10,
       });
     }
     return out;
@@ -605,6 +650,13 @@ export function WorkLogDashboard({
     ? Math.max(
         0,
         Math.floor((nowMs - new Date(runningDeenDay.deenTimerStartedAt).getTime()) / 1000)
+      )
+    : 0;
+
+  const fitnessRunningSessionSecs = runningFitnessDay?.fitnessTimerStartedAt
+    ? Math.max(
+        0,
+        Math.floor((nowMs - new Date(runningFitnessDay.fitnessTimerStartedAt).getTime()) / 1000)
       )
     : 0;
 
@@ -628,18 +680,23 @@ export function WorkLogDashboard({
           className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8"
         >
           <div>
-            <button
-              type="button"
-              onClick={() => router.push(backHref)}
-              className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-white mb-3"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              {backLabel}
-            </button>
-            <h1 className="text-3xl font-extrabold bg-gradient-to-r from-[var(--accent-cyan)] to-teal-300 bg-clip-text text-transparent">
-              {title}
-            </h1>
-            <p className="text-[var(--text-secondary)] text-sm mt-1">
+            {backHref ? (
+              <button
+                type="button"
+                onClick={() => router.push(backHref)}
+                className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-white mb-3"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                {backLabel ?? "Back"}
+              </button>
+            ) : null}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt={title}
+              className="h-12 w-auto sm:h-14"
+            />
+            <p className="text-[var(--text-secondary)] text-sm mt-2">
               {formatDayLabel(todayKey)} · {subtitle}
               {activePerson ? (
                 <span className="text-white/80"> · tracking {activePerson.name}</span>
@@ -693,7 +750,7 @@ export function WorkLogDashboard({
             {
               label: "Today (total)",
               value: formatDuration(stats.todayTotalSecs),
-              sub: `${formatDuration(stats.todayWorkSecs)} work · ${formatDuration(stats.todayDeenSecs)} deen`,
+              sub: `${formatDuration(stats.todayWorkSecs)} work · ${formatDuration(stats.todayDeenSecs)} deen · ${formatDuration(stats.todayFitnessSecs)} fitness`,
               Icon: Clock,
             },
             { label: "Last 7 days", value: formatDuration(stats.weekSecs), Icon: CalendarDays },
@@ -752,10 +809,14 @@ export function WorkLogDashboard({
             nowMs={nowMs}
             workSeconds={liveSeconds(today, nowMs)}
             deenSeconds={deenLiveSeconds(today, nowMs)}
+            fitnessSeconds={fitnessLiveSeconds(today, nowMs)}
             workTimerRunning={timerRunning}
             deenTimerRunning={deenTimerRunning}
+            fitnessTimerRunning={fitnessTimerRunning}
             workSessionSecs={runningSessionSecs}
             deenSessionSecs={deenRunningSessionSecs}
+            fitnessSessionSecs={fitnessRunningSessionSecs}
+            personId={activePersonId}
             onPatch={patchDayForPlans}
           />
         </motion.div>
@@ -802,7 +863,7 @@ export function WorkLogDashboard({
         >
           <h2 className="text-lg font-bold text-white mb-1">Hours per day — last 14 days</h2>
           <p className="text-xs text-[var(--text-secondary)] mb-4">
-            Stacked bars show business + Ilme Deen combined — your full logged time each day.
+            Stacked bars show business, Deen, and fitness — your full logged time each day.
           </p>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -831,7 +892,8 @@ export function WorkLogDashboard({
                   formatter={(value: number | string, name: string) => {
                     const labels: Record<string, string> = {
                       business: "Business",
-                      deen: "Ilme Deen",
+                      deen: "Deen",
+                      fitness: "Fitness",
                       total: "Total",
                     };
                     return [`${value} h`, labels[name] ?? name];
@@ -840,7 +902,13 @@ export function WorkLogDashboard({
                 <Legend
                   wrapperStyle={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}
                   formatter={(value) =>
-                    value === "business" ? "Business" : value === "deen" ? "Ilme Deen" : "Total"
+                    value === "business"
+                      ? "Business"
+                      : value === "deen"
+                        ? "Deen"
+                        : value === "fitness"
+                          ? "Fitness"
+                          : "Total"
                   }
                 />
                 <Bar
@@ -854,8 +922,15 @@ export function WorkLogDashboard({
                   dataKey="deen"
                   stackId="time"
                   fill="#34d399"
-                  radius={[4, 4, 0, 0]}
+                  radius={[0, 0, 0, 0]}
                   name="deen"
+                />
+                <Bar
+                  dataKey="fitness"
+                  stackId="time"
+                  fill="#fb923c"
+                  radius={[4, 4, 0, 0]}
+                  name="fitness"
                 />
               </BarChart>
             </ResponsiveContainer>
@@ -922,7 +997,8 @@ export function WorkLogDashboard({
                       </span>
                       <span className="text-[11px] text-[var(--text-secondary)]">
                         ({formatDuration(liveSeconds(day, nowMs))} +{" "}
-                        {formatDuration(deenLiveSeconds(day, nowMs))})
+                        {formatDuration(deenLiveSeconds(day, nowMs))} +{" "}
+                        {formatDuration(fitnessLiveSeconds(day, nowMs))})
                       </span>
                       {day.timerStartedAt ? (
                         <span className="text-xs rounded-full border border-[var(--accent-cyan)]/35 bg-[var(--accent-cyan)]/10 px-2 py-0.5 font-semibold text-[var(--accent-cyan)]">
@@ -943,7 +1019,11 @@ export function WorkLogDashboard({
                           <div key={plan.id}>
                             <p
                               className={`text-xs uppercase tracking-wider mb-1.5 font-semibold ${
-                                plan.kind === "deen" ? "text-emerald-300" : "text-[var(--accent-cyan)]"
+                                plan.kind === "deen"
+                                  ? "text-emerald-300"
+                                  : plan.kind === "fitness"
+                                    ? "text-orange-300"
+                                    : "text-[var(--accent-cyan)]"
                               }`}
                             >
                               {plan.title}
@@ -957,7 +1037,11 @@ export function WorkLogDashboard({
                                     {t.done ? (
                                       <CheckCircle2
                                         className={`w-4 h-4 shrink-0 ${
-                                          plan.kind === "deen" ? "text-emerald-300" : "text-[var(--accent-cyan)]"
+                                          plan.kind === "deen"
+                                            ? "text-emerald-300"
+                                            : plan.kind === "fitness"
+                                              ? "text-orange-300"
+                                              : "text-[var(--accent-cyan)]"
                                         }`}
                                       />
                                     ) : (
