@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   ArrowLeft,
+  BarChart3,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -310,6 +311,7 @@ export function WorkLogDashboard({
   const [savingNotes, setSavingNotes] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activeView, setActiveView] = useState<"track" | "insights">("track");
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
@@ -529,7 +531,7 @@ export function WorkLogDashboard({
       text: template.text,
       priority: template.priority,
       estimateMinutes: template.estimateMinutes,
-      list: template.list === "deen" ? "deen" : undefined,
+      list: template.list === "deen" ? "deen" : "work",
     });
   };
 
@@ -680,8 +682,17 @@ export function WorkLogDashboard({
   }
 
   return (
-    <div className="min-h-screen text-white pt-24 pb-16" style={{ background: "var(--bg-gradient)" }}>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6">
+    <div
+      className="relative min-h-screen overflow-hidden text-white pt-24 pb-16"
+      style={{ background: "var(--bg-gradient)" }}
+    >
+      {/* Ambient glow accents for depth */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="animate-float-slow absolute -top-40 -left-24 h-96 w-96 rounded-full bg-[var(--accent-cyan)]/10 blur-[130px]" />
+        <div className="animate-float-slow absolute top-1/3 -right-28 h-[28rem] w-[28rem] rounded-full bg-cyan-400/10 blur-[140px] [animation-delay:-6s]" />
+        <div className="absolute -bottom-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-500/10 blur-[130px]" />
+      </div>
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6">
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -698,31 +709,55 @@ export function WorkLogDashboard({
                 {backLabel ?? "Back"}
               </button>
             ) : null}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/logo.png"
-              alt={title}
-              data-tour="logo"
-              className="h-12 w-auto sm:h-14"
-            />
-            <p className="text-[var(--text-secondary)] text-sm mt-2">
-              {formatDayLabel(todayKey)} · {subtitle}
+            <div className="relative inline-block">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute -inset-3 rounded-full bg-[var(--accent-cyan)]/15 blur-2xl"
+              />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo.png"
+                alt={title}
+                data-tour="logo"
+                className="relative h-12 w-auto sm:h-14"
+              />
+            </div>
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-secondary)]">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-medium text-white/90">
+                <CalendarDays className="h-3.5 w-3.5 text-[var(--accent-cyan)]" />
+                {formatDayLabel(todayKey)}
+              </span>
+              <span className="hidden sm:inline text-white/20">·</span>
+              <span>{subtitle}</span>
               {activePerson ? (
-                <span className="text-white/80"> · tracking {activePerson.name}</span>
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold"
+                  style={{
+                    borderColor: `${activePerson.color}55`,
+                    color: activePerson.color,
+                    background: `${activePerson.color}14`,
+                  }}
+                >
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ background: activePerson.color }}
+                  />
+                  {activePerson.name}
+                </span>
               ) : null}
             </p>
           </div>
           {userEmail || onLogout || onStartTour ? (
             <div className="flex items-center gap-3">
               {userEmail ? (
-                <p className="text-sm text-[var(--text-secondary)]">{userEmail}</p>
+                <p className="hidden sm:block text-sm text-[var(--text-secondary)]">{userEmail}</p>
               ) : null}
               {onStartTour ? (
                 <button
                   type="button"
                   onClick={onStartTour}
                   data-tour="tour-btn"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold hover:bg-white/10"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold transition-all hover:border-[var(--accent-cyan)]/40 hover:bg-white/10"
                   title="Take a quick tour of the app"
                 >
                   <HelpCircle className="h-4 w-4 text-[var(--accent-cyan)]" />
@@ -733,7 +768,7 @@ export function WorkLogDashboard({
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold hover:bg-white/10"
+                  className="rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold transition-all hover:border-red-400/40 hover:bg-white/10"
                 >
                   Sign out
                 </button>
@@ -759,6 +794,42 @@ export function WorkLogDashboard({
           </div>
         ) : null}
 
+        {/* View switch: day tracking vs. visuals/insights */}
+        <div className="mb-6 flex justify-center">
+          <div className="inline-flex gap-1 rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]/70 p-1.5 backdrop-blur">
+            {([
+              { id: "track", label: "Tracking", Icon: ListChecks },
+              { id: "insights", label: "Insights", Icon: BarChart3 },
+            ] as const).map((tab) => {
+              const active = activeView === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  data-tour={`view-tab-${tab.id}`}
+                  onClick={() => setActiveView(tab.id)}
+                  aria-pressed={active}
+                  className={`relative inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition-colors ${
+                    active ? "text-[#070d0d]" : "text-[var(--text-secondary)] hover:text-white"
+                  }`}
+                >
+                  {active ? (
+                    <motion.span
+                      layoutId="viewTabIndicator"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                      className="absolute inset-0 rounded-xl bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] shadow-[0_0_22px_-4px_var(--accent-cyan-glow)]"
+                    />
+                  ) : null}
+                  <tab.Icon className="relative h-4 w-4" />
+                  <span className="relative">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {activeView === "track" ? (
+        <>
         {settingsEnabled && settings ? (
           <div data-tour="daily-goal">
             <DailyGoalProgress
@@ -768,45 +839,6 @@ export function WorkLogDashboard({
             />
           </div>
         ) : null}
-
-        {/* Stats row */}
-        <div data-tour="stats" className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-          {[
-            {
-              label: "Today (total)",
-              value: formatDuration(stats.todayTotalSecs),
-              sub: `${formatDuration(stats.todayWorkSecs)} work · ${formatDuration(stats.todayDeenSecs)} deen · ${formatDuration(stats.todayFitnessSecs)} fitness`,
-              Icon: Clock,
-            },
-            { label: "Last 7 days", value: formatDuration(stats.weekSecs), Icon: CalendarDays },
-            { label: "This month", value: formatDuration(stats.monthSecs), Icon: ListChecks },
-            {
-              label: "Day streak",
-              value: `${stats.streak} ${stats.streak === 1 ? "day" : "days"}`,
-              Icon: Flame,
-            },
-            {
-              label: "Tasks done",
-              value: `${stats.taskCompletion}%`,
-              sub: stats.avgDaily > 0 ? `~${stats.avgDaily}h avg active day` : undefined,
-              Icon: TrendingUp,
-            },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="bg-[var(--card-bg)]/80 border border-[var(--card-border)] rounded-xl p-5"
-            >
-              <div className="flex items-center gap-2">
-                <s.Icon className="w-4 h-4 text-[var(--accent-cyan)]" />
-                <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">{s.label}</p>
-              </div>
-              <p className="text-2xl font-bold text-white mt-1">{s.value}</p>
-              {"sub" in s && s.sub ? (
-                <p className="text-[11px] text-[var(--text-secondary)] mt-1">{s.sub}</p>
-              ) : null}
-            </div>
-          ))}
-        </div>
 
         {settingsEnabled && settings ? (
           <div data-tour="templates">
@@ -822,12 +854,15 @@ export function WorkLogDashboard({
         ) : null}
 
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <p className="text-center text-sm text-[var(--text-secondary)] mb-4">
-            Combined time today:{" "}
-            <span className="font-bold text-white tabular-nums">
-              {formatClock(stats.todayTotalSecs)}
-            </span>
-          </p>
+          <div className="mb-5 flex justify-center">
+            <div className="inline-flex items-center gap-2.5 rounded-full border border-[var(--card-border)] bg-white/5 px-4 py-1.5 backdrop-blur">
+              <Clock className="h-4 w-4 text-[var(--accent-cyan)]" />
+              <span className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Combined today</span>
+              <span className="text-base font-bold tabular-nums text-gradient-cyan">
+                {formatClock(stats.todayTotalSecs)}
+              </span>
+            </div>
+          </div>
           <DailyPlansSection
             plans={todayPlans}
             dateKey={todayKey}
@@ -855,7 +890,7 @@ export function WorkLogDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="bg-[var(--card-bg)]/90 border border-[var(--card-border)] rounded-xl p-6 mb-6"
+          className="glass-card rounded-2xl p-6 mb-6"
         >
           <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2 flex items-center gap-1.5">
             <StickyNote className="w-3.5 h-3.5" />
@@ -883,6 +918,68 @@ export function WorkLogDashboard({
             </button>
           ) : null}
         </motion.section>
+        </>
+        ) : (
+        <>
+        {/* Stats row */}
+        <div data-tour="stats" className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+          {[
+            {
+              label: "Today (total)",
+              value: formatDuration(stats.todayTotalSecs),
+              sub: `${formatDuration(stats.todayWorkSecs)} work · ${formatDuration(stats.todayDeenSecs)} deen · ${formatDuration(stats.todayFitnessSecs)} fitness`,
+              Icon: Clock,
+              tint: "var(--accent-cyan)",
+            },
+            { label: "Last 7 days", value: formatDuration(stats.weekSecs), Icon: CalendarDays, tint: "#22d3ee" },
+            { label: "This month", value: formatDuration(stats.monthSecs), Icon: ListChecks, tint: "#a78bfa" },
+            {
+              label: "Day streak",
+              value: `${stats.streak} ${stats.streak === 1 ? "day" : "days"}`,
+              Icon: Flame,
+              tint: "#fb923c",
+            },
+            {
+              label: "Tasks done",
+              value: `${stats.taskCompletion}%`,
+              sub: stats.avgDaily > 0 ? `~${stats.avgDaily}h avg active day` : undefined,
+              Icon: TrendingUp,
+              tint: "#34d399",
+            },
+          ].map((s, i) => (
+            <motion.div
+              key={s.label}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05, duration: 0.35 }}
+              whileHover={{ y: -4 }}
+              className="group glass-card relative overflow-hidden rounded-2xl p-5"
+            >
+              <span
+                aria-hidden
+                className="absolute inset-x-0 top-0 h-px opacity-60"
+                style={{ background: `linear-gradient(90deg, transparent, ${s.tint}, transparent)` }}
+              />
+              <div className="flex items-center gap-2.5">
+                <span
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-transform group-hover:scale-110"
+                  style={{
+                    color: s.tint,
+                    borderColor: `${s.tint}40`,
+                    background: `${s.tint}1a`,
+                  }}
+                >
+                  <s.Icon className="h-4 w-4" />
+                </span>
+                <p className="text-[11px] uppercase tracking-wider text-[var(--text-secondary)]">{s.label}</p>
+              </div>
+              <p className="mt-2 text-2xl font-bold tabular-nums text-white">{s.value}</p>
+              {"sub" in s && s.sub ? (
+                <p className="mt-1 text-[11px] text-[var(--text-secondary)]">{s.sub}</p>
+              ) : null}
+            </motion.div>
+          ))}
+        </div>
 
         {/* Chart */}
         <motion.section
@@ -890,9 +987,12 @@ export function WorkLogDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-[var(--card-bg)]/90 border border-[var(--card-border)] rounded-xl p-6 mb-6"
+          className="glass-card rounded-2xl p-6 mb-6"
         >
-          <h2 className="text-lg font-bold text-white mb-1">Hours per day — last 14 days</h2>
+          <h2 className="flex items-center gap-2 text-lg font-bold text-white mb-1">
+            <BarChart3 className="h-5 w-5 text-[var(--accent-cyan)]" />
+            Hours per day — last 14 days
+          </h2>
           <p className="text-xs text-[var(--text-secondary)] mb-4">
             Stacked bars show business, Deen, and fitness — your full logged time each day.
           </p>
@@ -994,9 +1094,12 @@ export function WorkLogDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="bg-[var(--card-bg)]/90 border border-[var(--card-border)] rounded-xl p-6"
+          className="glass-card rounded-2xl p-6"
         >
-          <h2 className="text-lg font-bold text-white mb-4">History</h2>
+          <h2 className="flex items-center gap-2 text-lg font-bold text-white mb-4">
+            <CalendarDays className="h-5 w-5 text-[var(--accent-cyan)]" />
+            History
+          </h2>
 
           {loading ? (
             <div className="flex justify-center py-12">
@@ -1016,7 +1119,7 @@ export function WorkLogDashboard({
                 return (
                   <li
                     key={day.dateKey}
-                    className="rounded-lg border border-[var(--card-border)] bg-white/5"
+                    className="rounded-xl border border-[var(--card-border)] bg-white/5 transition-colors hover:border-[var(--accent-cyan)]/30 hover:bg-white/[0.07]"
                   >
                     <button
                       type="button"
@@ -1118,6 +1221,8 @@ export function WorkLogDashboard({
             </ul>
           )}
         </motion.section>
+        </>
+        )}
       </div>
 
       {showSettingsModal && settings ? (

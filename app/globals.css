@@ -5,14 +5,21 @@
 :root {
   --bg-primary: #000000;
   --bg-secondary: #0a1f1f;
-  --bg-gradient: linear-gradient(135deg, #000000 0%, #0a1f1f 50%, #1a3d3d 100%);
+  --bg-gradient: radial-gradient(1200px circle at 15% -10%, rgba(0, 255, 204, 0.08), transparent 45%),
+    radial-gradient(1000px circle at 100% 0%, rgba(34, 211, 238, 0.07), transparent 45%),
+    linear-gradient(160deg, #000000 0%, #061616 45%, #0c2626 100%);
   --accent-cyan: #00ffcc;
+  --accent-cyan-2: #22d3ee;
   --accent-cyan-glow: rgba(0, 255, 204, 0.4);
   --accent-cyan-glow-soft: rgba(0, 255, 204, 0.15);
   --text-primary: #ffffff;
   --text-secondary: #b0b8b8;
   --card-bg: #0d0d0d;
   --card-border: #1a4d4d;
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
@@ -22,4 +29,82 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+/* Custom scrollbar to match the dark/cyan theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 255, 204, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0, 255, 204, 0.45), rgba(34, 211, 238, 0.35));
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 255, 204, 0.7), rgba(34, 211, 238, 0.55));
+  background-clip: padding-box;
+}
+
+@layer components {
+  /* Glassy surface used for cards/panels across the app */
+  .glass-card {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.04),
+      rgba(255, 255, 255, 0.015)
+    );
+    border: 1px solid var(--card-border);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset,
+      0 16px 40px -24px rgba(0, 0, 0, 0.8);
+    transition: border-color 0.25s ease, box-shadow 0.3s ease, transform 0.25s ease;
+  }
+
+  .glass-card:hover {
+    border-color: rgba(0, 255, 204, 0.35);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06) inset,
+      0 24px 60px -28px rgba(0, 0, 0, 0.9),
+      0 0 30px -10px var(--accent-cyan-glow-soft);
+  }
+
+  /* Cyan gradient text for headings/accents */
+  .text-gradient-cyan {
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-cyan-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+@layer utilities {
+  .glow-cyan {
+    box-shadow: 0 0 24px -6px var(--accent-cyan-glow);
+  }
+
+  @keyframes float-slow {
+    0%,
+    100% {
+      transform: translateY(0) scale(1);
+    }
+    50% {
+      transform: translateY(-18px) scale(1.04);
+    }
+  }
+
+  .animate-float-slow {
+    animation: float-slow 14s ease-in-out infinite;
+  }
 }

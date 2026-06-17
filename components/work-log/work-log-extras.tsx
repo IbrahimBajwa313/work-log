@@ -115,16 +115,18 @@ export function DailyGoalProgress({
   const met = totalSeconds >= goalSecs;
 
   return (
-    <div className="bg-[var(--card-bg)]/80 border border-[var(--card-border)] rounded-xl p-5 mb-6">
+    <div className="glass-card rounded-2xl p-5 mb-6">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Target className="w-4 h-4 text-[var(--accent-cyan)]" />
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--accent-cyan)]/30 bg-[var(--accent-cyan)]/10">
+            <Target className="w-4 h-4 text-[var(--accent-cyan)]" />
+          </span>
           <p className="text-sm font-bold text-white">Daily goal</p>
         </div>
         <button
           type="button"
           onClick={onEditGoal}
-          className="text-xs text-[var(--text-secondary)] hover:text-white"
+          className="rounded-md border border-[var(--card-border)] bg-white/5 px-2.5 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:text-white"
         >
           Edit goal
         </button>
@@ -135,8 +137,10 @@ export function DailyGoalProgress({
       </div>
       <div className="h-2.5 rounded-full bg-white/10 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-500 ${
-            met ? "bg-emerald-400" : "bg-[var(--accent-cyan)]"
+          className={`h-full rounded-full transition-all duration-700 ${
+            met
+              ? "bg-gradient-to-r from-emerald-400 to-emerald-300 shadow-[0_0_14px_-2px_rgba(52,211,153,0.6)]"
+              : "bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] shadow-[0_0_14px_-2px_var(--accent-cyan-glow)]"
           }`}
           style={{ width: `${pct}%` }}
         />
@@ -166,7 +170,7 @@ export function TaskTemplatesPanel({
   const pending = templates.filter((t) => !todayTaskTexts.has(t.text.trim().toLowerCase()));
   if (templates.length === 0) {
     return (
-      <div className="bg-[var(--card-bg)]/80 border border-[var(--card-border)] rounded-xl p-5 mb-6">
+      <div className="glass-card rounded-2xl p-5 mb-6">
         <div className="flex items-center gap-2 mb-2">
           <Bookmark className="w-4 h-4 text-[var(--accent-cyan)]" />
           <h2 className="text-sm font-bold text-white">Saved daily tasks</h2>
@@ -186,7 +190,7 @@ export function TaskTemplatesPanel({
   }
 
   return (
-    <div className="bg-[var(--card-bg)]/80 border border-[var(--card-border)] rounded-xl p-5 mb-6">
+    <div className="glass-card rounded-2xl p-5 mb-6">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2">
           <Bookmark className="w-4 h-4 text-[var(--accent-cyan)]" />

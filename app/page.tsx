@@ -13,12 +13,28 @@ import {
   workLogAuthorizedInit,
 } from "@/hooks/useWorkLogSessionGate";
 
-function clickPlanTab(id: "work" | "deen" | "fitness") {
+function clickViewTab(view: "track" | "insights") {
   return () => {
     const el = document.querySelector(
-      `[data-tour="plan-tab-${id}"]`
+      `[data-tour="view-tab-${view}"]`
     ) as HTMLElement | null;
     el?.click();
+  };
+}
+
+/** Plan tabs only exist inside the Tracking view, so switch there first. */
+function showPlan(id: "work" | "deen" | "fitness") {
+  return () => {
+    const viewEl = document.querySelector(
+      `[data-tour="view-tab-track"]`
+    ) as HTMLElement | null;
+    viewEl?.click();
+    setTimeout(() => {
+      const el = document.querySelector(
+        `[data-tour="plan-tab-${id}"]`
+      ) as HTMLElement | null;
+      el?.click();
+    }, 90);
   };
 }
 
@@ -52,49 +68,57 @@ export default function HomePage() {
         selector: '[data-tour="logo"]',
         title: "Welcome to Work Logging 👋",
         body: "This is your daily dashboard. Here you track your time, tick off tasks, and build good habits. Let's take a 60-second tour of what each part does.",
+        before: clickViewTab("track"),
+        beforeDelay: 200,
+      },
+      {
+        selector: '[data-tour="view-tab-track"]',
+        title: "Two views: Tracking & Insights",
+        body: "Use “Tracking” to log your day — timers, tasks, goals and notes. Switch to “Insights” when you want the charts, stats and full history. We'll visit both.",
+        before: clickViewTab("track"),
+        beforeDelay: 200,
       },
       {
         selector: '[data-tour="plan-tabs"]',
         title: "Your three daily areas",
         body: "Switch between Business (your work), Deen (faith), and Fitness. Each area keeps its own timer and to-do list.",
-        before: clickPlanTab("work"),
-        beforeDelay: 200,
+        before: showPlan("work"),
+        beforeDelay: 320,
       },
       {
         selector: '[data-tour="timer"]',
         title: "Start & stop the timer",
         body: "Press Start when you begin and Stop when you finish — the app counts the minutes for you. No time to run it live? Type the hours/minutes under “Manual time”.",
-        before: clickPlanTab("work"),
-        beforeDelay: 200,
+        before: showPlan("work"),
+        beforeDelay: 320,
       },
       {
         selector: '[data-tour="subtasks"]',
         title: "Add tasks for the day",
         body: "List what you want to get done, then tap the circle to mark each one complete. You can tag a task High/Medium/Low and add a time estimate.",
-        before: clickPlanTab("work"),
-        beforeDelay: 200,
+        before: showPlan("work"),
+        beforeDelay: 320,
       },
       {
         selector: '[data-tour="azkar"]',
         title: "Morning & Evening Azkar",
         body: "Inside Deen you'll find the daily Azkar (morning & evening remembrances). Open one to read each du'ā in Arabic with its English meaning and reward, then tap as you recite — your progress is saved for the day.",
-        before: clickPlanTab("deen"),
-        beforeDelay: 320,
+        before: showPlan("deen"),
+        beforeDelay: 420,
       },
       {
         selector: '[data-tour="daily-goal"]',
         title: "Your daily goal",
         body: "Set a time goal for the day (say, 4 hours). This bar fills up as you log time so you always know how you're doing. Tap it to change the goal.",
-      },
-      {
-        selector: '[data-tour="stats"]',
-        title: "Your numbers at a glance",
-        body: "Today's total, the last 7 days, this month, your day streak 🔥, and how many tasks you've completed.",
+        before: clickViewTab("track"),
+        beforeDelay: 220,
       },
       {
         selector: '[data-tour="templates"]',
         title: "Saved task templates",
         body: "Have a routine you repeat daily? Save it once, then add all those tasks with a single tap instead of retyping them.",
+        before: clickViewTab("track"),
+        beforeDelay: 220,
       },
       {
         selector: '[data-tour="person-tabs"]',
@@ -105,16 +129,29 @@ export default function HomePage() {
         selector: '[data-tour="notes"]',
         title: "Day notes",
         body: "Jot down anything worth remembering about the day — wins, blockers, or reminders.",
+        before: clickViewTab("track"),
+        beforeDelay: 220,
+      },
+      {
+        selector: '[data-tour="stats"]',
+        title: "Your numbers at a glance",
+        body: "Flip to “Insights” for the big picture: today's total, the last 7 days, this month, your day streak 🔥, and how many tasks you've completed.",
+        before: clickViewTab("insights"),
+        beforeDelay: 260,
       },
       {
         selector: '[data-tour="chart"]',
         title: "See your progress",
         body: "This chart shows your hours for the last 14 days, split by Business, Deen, and Fitness, so you can spot your best days.",
+        before: clickViewTab("insights"),
+        beforeDelay: 220,
       },
       {
         selector: '[data-tour="history"]',
         title: "Look back anytime",
         body: "Every past day is saved here. Tap any day to expand it and see exactly what you did.",
+        before: clickViewTab("insights"),
+        beforeDelay: 220,
       },
       {
         selector: '[data-tour="tour-btn"]',
@@ -155,18 +192,28 @@ export default function HomePage() {
   if (!isAuthenticated) {
     return (
       <div
-        className="min-h-screen flex items-center justify-center px-4 py-16"
+        className="relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-16"
         style={{ background: "var(--bg-gradient)" }}
       >
-        <div className="w-full max-w-md">
-          <div className="bg-[var(--card-bg)]/90 border border-[var(--card-border)] rounded-xl p-8">
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="animate-float-slow absolute -top-32 -left-24 h-96 w-96 rounded-full bg-[var(--accent-cyan)]/10 blur-[130px]" />
+          <div className="animate-float-slow absolute -bottom-32 -right-24 h-96 w-96 rounded-full bg-cyan-400/10 blur-[140px] [animation-delay:-7s]" />
+        </div>
+        <div className="relative w-full max-w-md">
+          <div className="glass-card rounded-2xl p-8">
             <div className="mb-6 text-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo.png"
-                alt="Work Logging by TechCognify"
-                className="mx-auto mb-4 h-14 w-auto"
-              />
+              <div className="relative mx-auto mb-4 inline-block">
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute -inset-3 rounded-full bg-[var(--accent-cyan)]/15 blur-2xl"
+                />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/logo.png"
+                  alt="Work Logging by TechCognify"
+                  className="relative h-14 w-auto"
+                />
+              </div>
               <p className="text-[var(--text-secondary)] text-sm mt-2">
                 Create a free account to track your daily work, tasks, and goals.
               </p>
@@ -266,7 +313,7 @@ export default function HomePage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full bg-[var(--accent-cyan)] hover:opacity-90 text-[#070d0d] font-extrabold py-2.5 px-4 rounded-md disabled:opacity-50"
+                className="w-full rounded-lg bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] py-2.5 px-4 font-extrabold text-[#070d0d] shadow-[0_0_24px_-6px_var(--accent-cyan-glow)] transition-all hover:shadow-[0_0_30px_-4px_var(--accent-cyan-glow)] hover:brightness-105 disabled:opacity-50"
               >
                 {submitting ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}
               </button>

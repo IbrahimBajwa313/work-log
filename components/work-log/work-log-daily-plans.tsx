@@ -139,15 +139,15 @@ export function DailyPlansSection({
   personId = "primary",
   onPatch,
 }: DailyPlansSectionProps) {
-  const [activeCoreTab, setActiveCoreTab] = useState<"work" | "deen" | "fitness">("work");
+  const [activeTabId, setActiveTabId] = useState<string>(DEFAULT_WORK_PLAN_ID);
 
   // Open a specific tab when returning from a deep link (e.g. /?tab=deen).
   useEffect(() => {
     if (typeof window === "undefined") return;
     const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab === "work" || tab === "deen" || tab === "fitness") {
-      setActiveCoreTab(tab);
-    }
+    if (tab === "work") setActiveTabId(DEFAULT_WORK_PLAN_ID);
+    else if (tab === "deen") setActiveTabId(DEFAULT_DEEN_PLAN_ID);
+    else if (tab === "fitness") setActiveTabId(DEFAULT_FITNESS_PLAN_ID);
   }, []);
   const [newPlanTitle, setNewPlanTitle] = useState("");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
@@ -162,17 +162,24 @@ export function DailyPlansSection({
   const [adjustMins, setAdjustMins] = useState<Record<string, string>>({});
 
   const sortedPlans = [...plans].sort((a, b) => a.order - b.order);
-  const corePlans = sortedPlans.filter(
-    (p) => p.kind === "work" || p.kind === "deen" || p.kind === "fitness"
-  );
+  const coreRank: Record<string, number> = { work: 0, deen: 1, fitness: 2 };
+  const corePlans = sortedPlans
+    .filter((p) => p.kind === "work" || p.kind === "deen" || p.kind === "fitness")
+    .sort((a, b) => (coreRank[a.kind] ?? 9) - (coreRank[b.kind] ?? 9));
   const customPlans = sortedPlans.filter((p) => p.kind === "custom");
-  const visibleCorePlans =
-    activeCoreTab === "work"
-      ? corePlans.filter((p) => p.kind === "work")
-      : activeCoreTab === "deen"
-        ? corePlans.filter((p) => p.kind === "deen")
-        : corePlans.filter((p) => p.kind === "fitness");
-  const plansToRender = [...visibleCorePlans, ...customPlans];
+  // Every plan (core + custom) is a tab; only the active plan is rendered below.
+  const orderedPlans = [...corePlans, ...customPlans];
+  const tabLabel = (plan: SerializedWorkLogPlan) =>
+    plan.kind === "work"
+      ? "Business"
+      : plan.kind === "deen"
+        ? "Deen"
+        : plan.kind === "fitness"
+          ? "Fitness"
+          : plan.title;
+  const activePlan =
+    orderedPlans.find((p) => p.id === activeTabId) ?? orderedPlans[0] ?? null;
+  const plansToRender = activePlan ? [activePlan] : [];
 
   const timerListForPlan = (plan: SerializedWorkLogPlan): "work" | "deen" | "fitness" | null => {
     if (plan.kind === "work") return "work";
@@ -289,31 +296,27 @@ export function DailyPlansSection({
         </form>
       </div>
 
-      <div data-tour="plan-tabs" className="flex rounded-lg border border-[var(--card-border)] bg-white/5 p-1">
-        {(
-          [
-            { id: "work" as const, label: "Business" },
-            { id: "deen" as const, label: "Deen" },
-            { id: "fitness" as const, label: "Fitness" },
-          ] as const
-        ).map((tab) => (
+      <div data-tour="plan-tabs" className="flex flex-wrap gap-1 rounded-xl border border-[var(--card-border)] bg-white/5 p-1.5 backdrop-blur">
+        {orderedPlans.map((plan) => (
           <button
-            key={tab.id}
+            key={plan.id}
             type="button"
-            data-tour={`plan-tab-${tab.id}`}
-            onClick={() => setActiveCoreTab(tab.id)}
-            className={`flex-1 rounded-md py-2 text-sm font-semibold transition-colors ${
-              activeCoreTab === tab.id
-                ? "bg-[var(--accent-cyan)] text-[#070d0d]"
-                : "text-[var(--text-secondary)] hover:text-white"
+            data-tour={`plan-tab-${plan.kind === "custom" ? plan.id : plan.kind}`}
+            onClick={() => setActiveTabId(plan.id)}
+            className={`flex-1 min-w-[5rem] rounded-lg py-2 px-2 text-sm font-semibold transition-all truncate ${
+              activePlan?.id === plan.id
+                ? "bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] text-[#070d0d] shadow-[0_0_18px_-4px_var(--accent-cyan-glow)]"
+                : "text-[var(--text-secondary)] hover:bg-white/5 hover:text-white"
             }`}
+            title={tabLabel(plan)}
           >
-            {tab.label}
+            {tabLabel(plan)}
           </button>
         ))}
       </div>
 
-      {plansToRender.map((plan, index) => {
+      {plansToRender.map((plan) => {
+        const index = orderedPlans.findIndex((p) => p.id === plan.id);
         const accent = planAccent(plan);
         const Icon = accent.icon;
         const morningAzkar = plan.subTasks.find((t) => t.id === AZKAR_MORNING_TASK_ID);
@@ -342,12 +345,17 @@ export function DailyPlansSection({
         return (
           <article
             key={plan.id}
-            className={`bg-[var(--card-bg)]/90 border ${accent.border} rounded-xl p-6`}
+            className={`relative overflow-hidden rounded-2xl border ${accent.border} bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-6 backdrop-blur shadow-[0_16px_44px_-26px_rgba(0,0,0,0.85)] transition-colors`}
           >
+            <span
+              aria-hidden
+              className="absolute inset-x-0 top-0 h-px opacity-70"
+              style={{ background: `linear-gradient(90deg, transparent, ${accent.color}, transparent)` }}
+            />
             <div className="flex flex-wrap items-start gap-3 mb-4">
               <div
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/5"
-                style={{ color: accent.color }}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-white/5"
+                style={{ color: accent.color, borderColor: `${accent.color}40` }}
               >
                 <Icon className="w-5 h-5" />
               </div>
@@ -536,6 +544,14 @@ export function DailyPlansSection({
                       className="rounded-md border border-[var(--card-border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5"
                     >
                       Add
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => applyAdjust(plan, "add", -1)}
+                      className="rounded-md border border-red-400/40 bg-red-400/10 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-400/20"
+                    >
+                      Subtract
                     </button>
                     <button
                       type="button"
