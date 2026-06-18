@@ -278,6 +278,42 @@ async function finalizeRunningTimers<T extends AdminWorkLogDoc>(
   }
 }
 
+/** Stops a running timer on the requested day, or any other day in scope (e.g. left on overnight). */
+async function stopRunningTimer<T extends AdminWorkLogDoc>(
+  coll: Collection<T>,
+  scopeFilter: Filter<T>,
+  dayFilter: Filter<T>,
+  dateKey: string,
+  fields: TimerFields,
+  now: Date
+): Promise<string> {
+  const doc = await coll.findOne(dayFilter);
+  let startedAt = doc?.[fields.startedAt];
+  let stopFilter: Filter<T> = dayFilter;
+  let responseDateKey = dateKey;
+
+  if (!startedAt) {
+    const running = await coll.findOne({
+      ...scopeFilter,
+      [fields.startedAt]: { $ne: null },
+    } as Filter<T>);
+    if (running) {
+      startedAt = running[fields.startedAt] ?? null;
+      responseDateKey = running.dateKey;
+      stopFilter = { dateKey: running.dateKey, ...scopeFilter } as Filter<T>;
+    }
+  }
+
+  if (startedAt) {
+    await coll.updateOne(stopFilter, {
+      $inc: { [fields.minutes]: elapsedMinutes(startedAt, now) },
+      $set: { [fields.startedAt]: null, updatedAt: now },
+    } as UpdateFilter<T>);
+  }
+
+  return responseDateKey;
+}
+
 async function getOrCreateAdminDay(
   coll: Collection<AdminWorkLogDoc>,
   dateKey: string,
@@ -356,6 +392,7 @@ export async function applyWorkLogAction(
   const personId = resolveAdminPersonId(personIdInput);
   const scopeFilter = { personId } as Filter<AdminWorkLogDoc>;
   const dayFilter = { personId, dateKey } as Filter<AdminWorkLogDoc>;
+  let responseDateKey = dateKey;
 
   switch (body.action) {
     case "startTimer": {
@@ -367,14 +404,7 @@ export async function applyWorkLogAction(
     }
     case "stopTimer": {
       const fields = timerFields(body.list);
-      const doc = await coll.findOne(dayFilter);
-      const startedAt = doc?.[fields.startedAt];
-      if (startedAt) {
-        await coll.updateOne(dayFilter, {
-          $inc: { [fields.minutes]: elapsedMinutes(startedAt, now) },
-          $set: { [fields.startedAt]: null, updatedAt: now },
-        });
-      }
+      responseDateKey = await stopRunningTimer(coll, scopeFilter, dayFilter, dateKey, fields, now);
       break;
     }
     case "adjustMinutes": {
@@ -407,8 +437,8 @@ export async function applyWorkLogAction(
     }
   }
 
-  const updated = await coll.findOne(dayFilter);
-  return updated ? serializeWorkLogDay(updated) : emptyWorkLogDay(dateKey);
+  const updated = await coll.findOne({ personId, dateKey: responseDateKey } as Filter<AdminWorkLogDoc>);
+  return updated ? serializeWorkLogDay(updated) : emptyWorkLogDay(responseDateKey);
 }
 
 export async function applyUserWorkLogAction(
@@ -422,6 +452,7 @@ export async function applyUserWorkLogAction(
   const personId = resolvePersonId(personIdInput);
   const scopeFilter = { userId, personId } as Filter<UserWorkLogDoc>;
   const dayFilter = { userId, personId, dateKey } as Filter<UserWorkLogDoc>;
+  let responseDateKey = dateKey;
 
   switch (body.action) {
     case "startTimer": {
@@ -433,14 +464,7 @@ export async function applyUserWorkLogAction(
     }
     case "stopTimer": {
       const fields = timerFields(body.list);
-      const doc = await coll.findOne(dayFilter);
-      const startedAt = doc?.[fields.startedAt];
-      if (startedAt) {
-        await coll.updateOne(dayFilter, {
-          $inc: { [fields.minutes]: elapsedMinutes(startedAt, now) },
-          $set: { [fields.startedAt]: null, updatedAt: now },
-        });
-      }
+      responseDateKey = await stopRunningTimer(coll, scopeFilter, dayFilter, dateKey, fields, now);
       break;
     }
     case "adjustMinutes": {
@@ -473,6 +497,10 @@ export async function applyUserWorkLogAction(
     }
   }
 
-  const updated = await coll.findOne(dayFilter);
-  return updated ? serializeUserWorkLogDay(updated) : emptyUserWorkLogDay(dateKey);
+  const updated = await coll.findOne({
+    userId,
+    personId,
+    dateKey: responseDateKey,
+  } as Filter<UserWorkLogDoc>);
+  return updated ? serializeUserWorkLogDay(updated) : emptyUserWorkLogDay(responseDateKey);
 }

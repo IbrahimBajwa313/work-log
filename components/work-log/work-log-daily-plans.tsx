@@ -113,6 +113,9 @@ export type DailyPlansSectionProps = {
   workSessionSecs: number;
   deenSessionSecs: number;
   fitnessSessionSecs: number;
+  workSessionDateKey?: string | null;
+  deenSessionDateKey?: string | null;
+  fitnessSessionDateKey?: string | null;
   azkarMorningSeconds?: number;
   azkarEveningSeconds?: number;
   personId?: string;
@@ -134,6 +137,9 @@ export function DailyPlansSection({
   workSessionSecs,
   deenSessionSecs,
   fitnessSessionSecs,
+  workSessionDateKey,
+  deenSessionDateKey,
+  fitnessSessionDateKey,
   azkarMorningSeconds = 0,
   azkarEveningSeconds = 0,
   personId = "primary",
@@ -336,6 +342,14 @@ export function DailyPlansSection({
           list === "work" ? workSeconds : list === "deen" ? deenSeconds : list === "fitness" ? fitnessSeconds : 0;
         const sessionSecs =
           list === "work" ? workSessionSecs : list === "deen" ? deenSessionSecs : fitnessSessionSecs;
+        const sessionDateKey =
+          list === "work"
+            ? workSessionDateKey
+            : list === "deen"
+              ? deenSessionDateKey
+              : fitnessSessionDateKey;
+        const sessionFromOtherDay =
+          timerRunning && sessionDateKey && sessionDateKey !== dateKey;
         const isCore =
           plan.id === DEFAULT_WORK_PLAN_ID ||
           plan.id === DEFAULT_DEEN_PLAN_ID ||
@@ -491,7 +505,22 @@ export function DailyPlansSection({
                   {formatClock(liveSecs)}
                 </p>
                 <p className="text-xs text-center text-[var(--text-secondary)] mt-1">
-                  {timerRunning ? `Session · ${formatClock(sessionSecs)}` : "Timer stopped"}
+                  {timerRunning ? (
+                    <>
+                      Session · {formatClock(sessionSecs)}
+                      {sessionFromOtherDay ? (
+                        <span className="block text-amber-300/90 mt-0.5">
+                          Started {new Date(`${sessionDateKey}T12:00:00`).toLocaleDateString(undefined, {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                      ) : null}
+                    </>
+                  ) : (
+                    "Timer stopped"
+                  )}
                 </p>
                 <div className="flex justify-center gap-2 mt-3">
                   {timerRunning ? (

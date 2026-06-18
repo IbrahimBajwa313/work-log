@@ -453,8 +453,19 @@ export function WorkLogDashboard({
   const todayPlans = useMemo(() => resolveClientPlans(today), [today]);
 
   const patchDayForPlans = useCallback(
-    (body: Record<string, unknown>) => patchDay(todayKey, body),
-    [patchDay, todayKey]
+    async (body: Record<string, unknown>) => {
+      const action = body.action;
+      if (action === "stopTimer") {
+        const list = body.list as "work" | "deen" | "fitness" | undefined;
+        let dateKey = todayKey;
+        if (list === "work" && runningDay) dateKey = runningDay.dateKey;
+        else if (list === "deen" && runningDeenDay) dateKey = runningDeenDay.dateKey;
+        else if (list === "fitness" && runningFitnessDay) dateKey = runningFitnessDay.dateKey;
+        return patchDay(dateKey, body);
+      }
+      return patchDay(todayKey, body);
+    },
+    [patchDay, todayKey, runningDay, runningDeenDay, runningFitnessDay]
   );
 
   const patchSettings = useCallback(
@@ -869,15 +880,18 @@ export function WorkLogDashboard({
             busy={busy}
             inputClass={inputClass}
             nowMs={nowMs}
-            workSeconds={liveSeconds(today, nowMs)}
-            deenSeconds={deenLiveSeconds(today, nowMs)}
-            fitnessSeconds={fitnessLiveSeconds(today, nowMs)}
+            workSeconds={liveSeconds(runningDay ?? today, nowMs)}
+            deenSeconds={deenLiveSeconds(runningDeenDay ?? today, nowMs)}
+            fitnessSeconds={fitnessLiveSeconds(runningFitnessDay ?? today, nowMs)}
             workTimerRunning={timerRunning}
             deenTimerRunning={deenTimerRunning}
             fitnessTimerRunning={fitnessTimerRunning}
             workSessionSecs={runningSessionSecs}
             deenSessionSecs={deenRunningSessionSecs}
             fitnessSessionSecs={fitnessRunningSessionSecs}
+            workSessionDateKey={runningDay?.dateKey}
+            deenSessionDateKey={runningDeenDay?.dateKey}
+            fitnessSessionDateKey={runningFitnessDay?.dateKey}
             azkarMorningSeconds={today.azkarMorningSeconds ?? 0}
             azkarEveningSeconds={today.azkarEveningSeconds ?? 0}
             personId={activePersonId}
