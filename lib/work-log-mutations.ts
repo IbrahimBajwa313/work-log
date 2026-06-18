@@ -414,7 +414,11 @@ export async function applyWorkLogAction(
         body.mode === "set"
           ? Math.max(0, body.minutes)
           : Math.max(0, (doc[fields.minutes] ?? 0) + body.minutes);
-      await coll.updateOne(dayFilter, { $set: { [fields.minutes]: next, updatedAt: now } });
+      const $set: Record<string, unknown> = { [fields.minutes]: next, updatedAt: now };
+      if (body.mode === "set") {
+        $set[fields.startedAt] = null;
+      }
+      await coll.updateOne(dayFilter, { $set });
       break;
     }
     case "addTask":
@@ -474,7 +478,11 @@ export async function applyUserWorkLogAction(
         body.mode === "set"
           ? Math.max(0, body.minutes)
           : Math.max(0, (doc[fields.minutes] ?? 0) + body.minutes);
-      await coll.updateOne(dayFilter, { $set: { [fields.minutes]: next, updatedAt: now } });
+      const $set: Record<string, unknown> = { [fields.minutes]: next, updatedAt: now };
+      if (body.mode === "set") {
+        $set[fields.startedAt] = null;
+      }
+      await coll.updateOne(dayFilter, { $set });
       break;
     }
     case "addTask":

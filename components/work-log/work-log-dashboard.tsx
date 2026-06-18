@@ -282,6 +282,131 @@ function formatDayLabel(dateKey: string): string {
   });
 }
 
+type TimeList = "work" | "deen" | "fitness";
+
+function historyTimeKey(dateKey: string, list: TimeList): string {
+  return `${dateKey}:${list}`;
+}
+
+function HistoryDayTimeEditor({
+  day,
+  nowMs,
+  busy,
+  adjustH,
+  adjustM,
+  onAdjustHChange,
+  onAdjustMChange,
+  onApply,
+}: {
+  day: WorkLogDay;
+  nowMs: number;
+  busy: boolean;
+  adjustH: Record<string, string>;
+  adjustM: Record<string, string>;
+  onAdjustHChange: (key: string, value: string) => void;
+  onAdjustMChange: (key: string, value: string) => void;
+  onApply: (dateKey: string, list: TimeList, mode: "add" | "set", sign?: 1 | -1) => void;
+}) {
+  const rows: {
+    list: TimeList;
+    label: string;
+    color: string;
+    secs: number;
+    running: boolean;
+  }[] = [
+    {
+      list: "work",
+      label: "Business",
+      color: "var(--accent-cyan)",
+      secs: liveSeconds(day, nowMs),
+      running: Boolean(day.timerStartedAt),
+    },
+    {
+      list: "deen",
+      label: "Deen",
+      color: "#34d399",
+      secs: deenLiveSeconds(day, nowMs),
+      running: Boolean(day.deenTimerStartedAt),
+    },
+    {
+      list: "fitness",
+      label: "Fitness",
+      color: "#fb923c",
+      secs: fitnessLiveSeconds(day, nowMs),
+      running: Boolean(day.fitnessTimerStartedAt),
+    },
+  ];
+
+  return (
+    <div className="rounded-lg border border-[var(--card-border)] bg-white/[0.03] p-3 space-y-3">
+      <p className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">Edit logged time</p>
+      {rows.map((row) => {
+        const key = historyTimeKey(day.dateKey, row.list);
+        return (
+          <div key={row.list} className="flex flex-wrap items-center gap-x-2 gap-y-2">
+            <span className="w-[4.5rem] text-xs font-semibold shrink-0" style={{ color: row.color }}>
+              {row.label}
+            </span>
+            <span className="text-sm font-bold tabular-nums text-white min-w-[4rem]">
+              {formatDuration(row.secs)}
+            </span>
+            {row.running ? (
+              <span className="text-[10px] font-semibold text-amber-300/90">timer running</span>
+            ) : null}
+            <input
+              type="number"
+              min={0}
+              max={23}
+              placeholder="h"
+              value={adjustH[key] ?? ""}
+              onChange={(e) => onAdjustHChange(key, e.target.value)}
+              className="w-14 rounded-md border border-[var(--card-border)] bg-white/5 px-2 py-1.5 text-sm text-white"
+            />
+            <input
+              type="number"
+              min={0}
+              max={59}
+              placeholder="m"
+              value={adjustM[key] ?? ""}
+              onChange={(e) => onAdjustMChange(key, e.target.value)}
+              className="w-14 rounded-md border border-[var(--card-border)] bg-white/5 px-2 py-1.5 text-sm text-white"
+            />
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onApply(day.dateKey, row.list, "add", 1)}
+              className="rounded-md border border-[var(--card-border)] px-2.5 py-1.5 text-xs font-semibold hover:bg-white/5 disabled:opacity-50"
+            >
+              Add
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onApply(day.dateKey, row.list, "add", -1)}
+              className="rounded-md border border-red-400/40 bg-red-400/10 px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-400/20 disabled:opacity-50"
+            >
+              −
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onApply(day.dateKey, row.list, "set")}
+              className="rounded-md border border-[var(--accent-cyan)]/40 bg-[var(--accent-cyan)]/10 px-2.5 py-1.5 text-xs font-semibold text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/20 disabled:opacity-50"
+            >
+              Set
+            </button>
+          </div>
+        );
+      })}
+      <p className="text-[11px] text-[var(--text-secondary)]">
+        <strong className="text-white/80 font-semibold">Set</strong> replaces the total (e.g. enter{" "}
+        <strong className="text-white/80 font-semibold">6</strong> hours for Business). Add/Subtract change
+        it by the amount entered.
+      </p>
+    </div>
+  );
+}
+
 export function WorkLogDashboard({
   apiBase,
   authorizedInit,
@@ -310,6 +435,8 @@ export function WorkLogDashboard({
   const [notesDirty, setNotesDirty] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [historyAdjustH, setHistoryAdjustH] = useState<Record<string, string>>({});
+  const [historyAdjustM, setHistoryAdjustM] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [activeView, setActiveView] = useState<"track" | "insights">("track");
 
@@ -530,6 +657,23 @@ export function WorkLogDashboard({
       alert("Could not delete.");
     }
   };
+
+  const applyHistoryTimeAdjust = useCallback(
+    async (dateKey: string, list: TimeList, mode: "add" | "set", sign: 1 | -1 = 1) => {
+      const key = historyTimeKey(dateKey, list);
+      const h = Number.parseInt(historyAdjustH[key] || "0", 10);
+      const m = Number.parseInt(historyAdjustM[key] || "0", 10);
+      if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+      const minutes = (Math.abs(h) * 60 + Math.abs(m)) * sign;
+      if (mode === "add" && minutes === 0) return;
+      const ok = await patchDay(dateKey, { action: "adjustMinutes", mode, minutes, list });
+      if (ok) {
+        setHistoryAdjustH((s) => ({ ...s, [key]: "" }));
+        setHistoryAdjustM((s) => ({ ...s, [key]: "" }));
+      }
+    },
+    [patchDay, historyAdjustH, historyAdjustM]
+  );
 
   const applyTemplate = async (template: {
     text: string;
@@ -1164,6 +1308,20 @@ export function WorkLogDashboard({
 
                     {expanded ? (
                       <div className="border-t border-[var(--card-border)] px-4 py-3 space-y-4">
+                        <HistoryDayTimeEditor
+                          day={day}
+                          nowMs={nowMs}
+                          busy={busy}
+                          adjustH={historyAdjustH}
+                          adjustM={historyAdjustM}
+                          onAdjustHChange={(key, value) =>
+                            setHistoryAdjustH((s) => ({ ...s, [key]: value }))
+                          }
+                          onAdjustMChange={(key, value) =>
+                            setHistoryAdjustM((s) => ({ ...s, [key]: value }))
+                          }
+                          onApply={applyHistoryTimeAdjust}
+                        />
                         {dayPlans.map((plan) => (
                           <div key={plan.id}>
                             <p
