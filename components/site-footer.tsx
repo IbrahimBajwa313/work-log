@@ -24,7 +24,7 @@ export function SiteFooter() {
 
   return (
     <footer className="border-t border-[var(--card-border)] bg-[var(--card-bg)]/70 backdrop-blur">
-      <div className="mx-auto max-w-6xl px-4 py-12">
+      <div className="mx-auto max-w-6xl px-3 py-8 sm:px-4 sm:py-12">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           {/* Brand */}
           <div className="lg:pr-6">

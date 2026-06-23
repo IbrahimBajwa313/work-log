@@ -94,6 +94,31 @@ body {
     box-shadow: 0 0 24px -6px var(--accent-cyan-glow);
   }
 
+  /* iOS safe areas for notched devices & home indicator */
+  .safe-top {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+
+  .safe-bottom {
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  }
+
+  /* Minimum 44px touch target (Apple HIG) */
+  .touch-target {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  /* Horizontal scroll row for chip/tab strips on small screens */
+  .mobile-scroll-x {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .mobile-scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+
   @keyframes float-slow {
     0%,
     100% {

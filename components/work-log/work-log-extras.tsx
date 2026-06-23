@@ -67,14 +67,18 @@ export function PersonTabs({
   onManage: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 mb-6">
-      <Users className="w-4 h-4 text-[var(--text-secondary)] shrink-0" />
+    <div className="mb-5 sm:mb-6">
+      <p className="text-sm font-medium text-white mb-2 flex items-center gap-2">
+        <Users className="w-4 h-4 text-[var(--text-secondary)]" />
+        Who are you tracking for?
+      </p>
+      <div className="-mx-3 flex items-center gap-2 overflow-x-auto mobile-scroll-x px-3 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
       {people.map((p) => (
         <button
           key={p.id}
           type="button"
           onClick={() => onSelect(p.id)}
-          className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors ${
+          className={`shrink-0 rounded-full border px-3.5 py-2 text-sm font-semibold transition-colors touch-target sm:px-3 sm:py-1.5 ${
             activePersonId === p.id
               ? "border-white/30 bg-white/10 text-white"
               : "border-[var(--card-border)] bg-white/5 text-[var(--text-secondary)] hover:text-white"
@@ -91,11 +95,12 @@ export function PersonTabs({
       <button
         type="button"
         onClick={onManage}
-        className="inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold text-[var(--text-secondary)] hover:text-white"
+        className="shrink-0 inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-white/5 px-3.5 py-2 text-sm font-semibold text-[var(--text-secondary)] hover:text-white touch-target sm:px-3 sm:py-1.5"
       >
         <Settings className="w-3.5 h-3.5" />
         Manage
       </button>
+      </div>
     </div>
   );
 }
@@ -115,25 +120,25 @@ export function DailyGoalProgress({
   const met = totalSeconds >= goalSecs;
 
   return (
-    <div className="glass-card rounded-2xl p-5 mb-6">
-      <div className="flex items-center justify-between mb-3">
+    <div className="glass-card rounded-2xl p-4 mb-5 sm:p-5 sm:mb-6">
+      <div className="flex flex-col gap-2 mb-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--accent-cyan)]/30 bg-[var(--accent-cyan)]/10">
             <Target className="w-4 h-4 text-[var(--accent-cyan)]" />
           </span>
-          <p className="text-sm font-bold text-white">Daily goal</p>
+          <p className="text-sm font-bold text-white">Today&apos;s time goal</p>
         </div>
         <button
           type="button"
           onClick={onEditGoal}
-          className="rounded-md border border-[var(--card-border)] bg-white/5 px-2.5 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:text-white"
+          className="w-full rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-2.5 text-sm font-semibold text-[var(--text-secondary)] transition-colors hover:text-white sm:w-auto sm:py-1.5 sm:text-xs"
         >
-          Edit goal
+          Change goal
         </button>
       </div>
       <div className="flex items-end justify-between mb-2">
         <p className="text-2xl font-bold text-white tabular-nums">{formatDuration(totalSeconds)}</p>
-        <p className="text-sm text-[var(--text-secondary)]">of {formatEstimate(goalMinutes)}</p>
+        <p className="text-sm text-[var(--text-secondary)]">goal: {formatEstimate(goalMinutes)}</p>
       </div>
       <div className="h-2.5 rounded-full bg-white/10 overflow-hidden">
         <div
@@ -145,8 +150,8 @@ export function DailyGoalProgress({
           style={{ width: `${pct}%` }}
         />
       </div>
-      <p className="text-xs text-[var(--text-secondary)] mt-2">
-        {met ? "Goal reached — great work!" : `${pct}% of today's combined target`}
+      <p className="text-sm text-[var(--text-secondary)] mt-2">
+        {met ? "🎉 You reached your goal — well done!" : `${pct}% of the way there — keep going!`}
       </p>
     </div>
   );
@@ -159,6 +164,7 @@ export function TaskTemplatesPanel({
   onApply,
   onApplyAll,
   onManage,
+  className = "",
 }: {
   templates: WorkLogTaskTemplate[];
   todayTaskTexts: Set<string>;
@@ -166,17 +172,18 @@ export function TaskTemplatesPanel({
   onApply: (t: WorkLogTaskTemplate) => void;
   onApplyAll: () => void;
   onManage: () => void;
+  className?: string;
 }) {
   const pending = templates.filter((t) => !todayTaskTexts.has(t.text.trim().toLowerCase()));
   if (templates.length === 0) {
     return (
-      <div className="glass-card rounded-2xl p-5 mb-6">
+      <div className={`glass-card rounded-2xl p-4 mb-5 sm:p-5 sm:mb-6 ${className}`}>
         <div className="flex items-center gap-2 mb-2">
           <Bookmark className="w-4 h-4 text-[var(--accent-cyan)]" />
-          <h2 className="text-sm font-bold text-white">Saved daily tasks</h2>
+          <h2 className="text-sm font-bold text-white">Quick-add daily tasks</h2>
         </div>
         <p className="text-sm text-[var(--text-secondary)] mb-3">
-          Save tasks you repeat often — priority and time stay preset. Add them to any day in one tap.
+          Save tasks you do every day — add them all with one tap instead of typing again.
         </p>
         <button
           type="button"
@@ -190,11 +197,11 @@ export function TaskTemplatesPanel({
   }
 
   return (
-    <div className="glass-card rounded-2xl p-5 mb-6">
+    <div className={`glass-card rounded-2xl p-4 mb-5 sm:p-5 sm:mb-6 ${className}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="flex items-center gap-2">
           <Bookmark className="w-4 h-4 text-[var(--accent-cyan)]" />
-          <h2 className="text-sm font-bold text-white">Saved daily tasks</h2>
+          <h2 className="text-sm font-bold text-white">Quick-add daily tasks</h2>
           <span className="text-xs text-[var(--text-secondary)]">
             {pending.length} ready to add
           </span>
@@ -219,7 +226,7 @@ export function TaskTemplatesPanel({
           </button>
         </div>
       </div>
-      <ul className="flex flex-wrap gap-2">
+      <ul className="-mx-1 flex gap-2 overflow-x-auto mobile-scroll-x px-1 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
         {templates.map((t) => {
           const added = todayTaskTexts.has(t.text.trim().toLowerCase());
           const style = PRIORITY_STYLES[t.priority];

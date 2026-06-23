@@ -25,6 +25,13 @@ import {
   DEFAULT_WORK_PLAN_ID,
   type SerializedWorkLogPlan,
 } from "@/lib/work-log-plans";
+import {
+  confirmTimeAdjustment,
+  formatMinutesLabel,
+  loggedTimeLooksImpossible,
+  minutesSinceMidnight,
+  validateTimeAdjustment,
+} from "@/lib/work-log-time-guards";
 
 type WorkLogPriority = "high" | "medium" | "low";
 
@@ -71,15 +78,25 @@ function sortByPriority<T extends { priority: WorkLogPriority }>(items: T[]): T[
   );
 }
 
+const PRIORITY_ACCENT: Record<WorkLogPriority, string> = {
+  high: "#f87171",
+  medium: "#fbbf24",
+  low: "#38bdf8",
+};
+
 function PriorityBadge({
   priority,
   onClick,
+  compact = false,
 }: {
   priority: WorkLogPriority;
   onClick?: () => void;
+  compact?: boolean;
 }) {
   const style = PRIORITY_STYLES[priority];
-  const base = `shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${style.className}`;
+  const base = `shrink-0 rounded-full border font-bold uppercase tracking-wide ${style.className} ${
+    compact ? "px-1.5 py-0 text-[9px] leading-5" : "px-2 py-0.5 text-[10px]"
+  }`;
   if (!onClick) return <span className={base}>{style.label}</span>;
   return (
     <button type="button" onClick={onClick} className={`${base} hover:opacity-80`} title="Change priority">
@@ -88,13 +105,130 @@ function PriorityBadge({
   );
 }
 
-function EstimateBadge({ minutes }: { minutes: number | null }) {
+function EstimateBadge({ minutes, compact = false }: { minutes: number | null; compact?: boolean }) {
   if (!minutes) return null;
   return (
-    <span className="shrink-0 inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-white/5 px-2 py-0.5 text-[11px] font-semibold text-[var(--text-secondary)]">
-      <Clock className="w-3 h-3" />
+    <span
+      className={`shrink-0 inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-white/5 font-semibold text-[var(--text-secondary)] ${
+        compact ? "px-1.5 py-0 text-[10px] leading-5" : "px-2 py-0.5 text-[11px]"
+      }`}
+    >
+      <Clock className={compact ? "w-2.5 h-2.5" : "w-3 h-3"} />
       {formatEstimate(minutes)}
     </span>
+  );
+}
+
+function SubTaskRow({
+  task,
+  accentColor,
+  busy,
+  editing,
+  editText,
+  onEditTextChange,
+  onToggle,
+  onSaveEdit,
+  onStartEdit,
+  onCyclePriority,
+  onDelete,
+}: {
+  task: WorkLogSubTask;
+  accentColor: string;
+  busy: boolean;
+  editing: boolean;
+  editText: string;
+  onEditTextChange: (value: string) => void;
+  onToggle: () => void;
+  onSaveEdit: () => void;
+  onStartEdit: () => void;
+  onCyclePriority: () => void;
+  onDelete: () => void;
+}) {
+  const priorityColor = PRIORITY_ACCENT[task.priority ?? "medium"];
+
+  return (
+    <li
+      className={`group rounded-xl border transition-colors ${
+        task.done
+          ? "border-[var(--card-border)]/60 bg-white/[0.02]"
+          : "border-[var(--card-border)] bg-white/[0.04] hover:border-white/10 hover:bg-white/[0.06]"
+      }`}
+      style={{ borderLeftWidth: "3px", borderLeftColor: task.done ? "transparent" : priorityColor }}
+    >
+      <div className="flex items-start gap-3 p-3.5 sm:p-3">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onToggle}
+          className="touch-target shrink-0 -m-1.5 flex items-center justify-center rounded-full p-1.5 transition-colors hover:bg-white/5"
+          aria-label={task.done ? "Mark task incomplete" : "Mark task complete"}
+        >
+          {task.done ? (
+            <CheckCircle2 className="h-6 w-6 sm:h-5 sm:w-5" style={{ color: accentColor }} />
+          ) : (
+            <Circle className="h-6 w-6 text-white/35 transition-colors group-hover:text-white/55 sm:h-5 sm:w-5" />
+          )}
+        </button>
+
+        <div className="min-w-0 flex-1 pt-0.5">
+          {editing ? (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={editText}
+                onChange={(e) => onEditTextChange(e.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-2 text-sm text-white"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={onSaveEdit}
+                className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold"
+                style={{ color: accentColor }}
+              >
+                Save
+              </button>
+            </div>
+          ) : (
+            <p
+              className={`text-[15px] leading-snug sm:text-sm ${
+                task.done ? "text-[var(--text-secondary)] line-through decoration-white/20" : "text-white"
+              }`}
+            >
+              {task.text}
+            </p>
+          )}
+
+          {!editing ? (
+            <div className="mt-2.5 flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <EstimateBadge minutes={task.estimateMinutes} compact />
+                <PriorityBadge priority={task.priority} onClick={onCyclePriority} compact />
+              </div>
+              <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-[var(--card-border)]/80 bg-black/20 p-0.5">
+                <button
+                  type="button"
+                  onClick={onStartEdit}
+                  className="touch-target flex items-center justify-center rounded-md p-2 text-[var(--text-secondary)] transition-colors hover:bg-white/10 hover:text-white sm:p-1.5"
+                  title="Edit"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onDelete}
+                  className="touch-target flex items-center justify-center rounded-md p-2 text-red-400/60 transition-colors hover:bg-red-400/10 hover:text-red-400 sm:p-1.5"
+                  aria-label="Delete task"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -177,12 +311,26 @@ export function DailyPlansSection({
   const orderedPlans = [...corePlans, ...customPlans];
   const tabLabel = (plan: SerializedWorkLogPlan) =>
     plan.kind === "work"
-      ? "Business"
+      ? "Work"
       : plan.kind === "deen"
         ? "Deen"
         : plan.kind === "fitness"
           ? "Fitness"
           : plan.title;
+
+  const tabIcon = (plan: SerializedWorkLogPlan) => {
+    if (plan.kind === "work") return Briefcase;
+    if (plan.kind === "deen") return Moon;
+    if (plan.kind === "fitness") return Dumbbell;
+    return Sparkles;
+  };
+
+  const tabHint = (plan: SerializedWorkLogPlan) => {
+    if (plan.kind === "work") return "Your job & projects";
+    if (plan.kind === "deen") return "Faith & worship";
+    if (plan.kind === "fitness") return "Exercise & health";
+    return "Custom plan";
+  };
   const activePlan =
     orderedPlans.find((p) => p.id === activeTabId) ?? orderedPlans[0] ?? null;
   const plansToRender = activePlan ? [activePlan] : [];
@@ -259,8 +407,20 @@ export function DailyPlansSection({
     const h = Number.parseInt(adjustHours[plan.id] || "0", 10);
     const m = Number.parseInt(adjustMins[plan.id] || "0", 10);
     if (!Number.isFinite(h) || !Number.isFinite(m)) return;
-    const minutes = (Math.abs(h) * 60 + Math.abs(m)) * sign;
-    if (mode === "add" && minutes === 0) return;
+    const currentMinutes = Math.floor(
+      (list === "work" ? workSeconds : list === "deen" ? deenSeconds : fitnessSeconds) / 60
+    );
+    const validation = validateTimeAdjustment({
+      h,
+      m,
+      sign,
+      mode,
+      currentMinutes,
+      dateKey,
+      now: new Date(nowMs),
+    });
+    const minutes = confirmTimeAdjustment(validation, h, dateKey, new Date(nowMs));
+    if (minutes === null) return;
     const ok = await onPatch({
       action: "adjustMinutes",
       mode,
@@ -274,51 +434,59 @@ export function DailyPlansSection({
   };
 
   return (
-    <section className="mb-6 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <section className="mb-5 space-y-4 sm:mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-bold text-white">Daily plans</h2>
-          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-            Business, Deen, and Fitness — each plan has sub-tasks you can add or edit.
+          <h2 className="text-base font-bold text-white sm:text-lg">What are you working on today?</h2>
+          <p className="text-sm text-[var(--text-secondary)] mt-1">
+            Pick an area — each has its own timer and to-do list.
           </p>
         </div>
-        <form onSubmit={addCustomPlan} className="flex gap-2">
+        <form onSubmit={addCustomPlan} className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <input
             type="text"
             value={newPlanTitle}
             onChange={(e) => setNewPlanTitle(e.target.value)}
-            placeholder="Add another plan…"
+            placeholder="Add your own area…"
             maxLength={120}
-            className={`${inputClass} w-48 sm:w-56`}
+            className={`${inputClass} w-full sm:w-48 md:w-56`}
           />
           <button
             type="submit"
             disabled={busy || !newPlanTitle.trim()}
-            className="shrink-0 inline-flex items-center gap-1 rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-2 text-sm font-semibold hover:bg-white/10 disabled:opacity-50"
+            className="touch-target shrink-0 inline-flex items-center justify-center gap-1 rounded-lg border border-[var(--card-border)] bg-white/5 px-4 py-3 text-sm font-semibold hover:bg-white/10 disabled:opacity-50 sm:py-2"
           >
             <Plus className="w-4 h-4" />
-            Plan
+            Add area
           </button>
         </form>
       </div>
 
-      <div data-tour="plan-tabs" className="flex flex-wrap gap-1 rounded-xl border border-[var(--card-border)] bg-white/5 p-1.5 backdrop-blur">
-        {orderedPlans.map((plan) => (
+      <div data-tour="plan-tabs" className="grid grid-cols-3 gap-1.5 rounded-xl border border-[var(--card-border)] bg-white/5 p-1.5 backdrop-blur sm:flex sm:flex-wrap sm:gap-1.5">
+        {orderedPlans.map((plan) => {
+          const TabIcon = tabIcon(plan);
+          const active = activePlan?.id === plan.id;
+          return (
           <button
             key={plan.id}
             type="button"
             data-tour={`plan-tab-${plan.kind === "custom" ? plan.id : plan.kind}`}
             onClick={() => setActiveTabId(plan.id)}
-            className={`flex-1 min-w-[5rem] rounded-lg py-2 px-2 text-sm font-semibold transition-all truncate ${
-              activePlan?.id === plan.id
+            className={`flex min-h-[3.25rem] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-2 px-1 text-center transition-all sm:min-w-[6rem] sm:px-2 sm:py-2.5 ${
+              active
                 ? "bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] text-[#070d0d] shadow-[0_0_18px_-4px_var(--accent-cyan-glow)]"
                 : "text-[var(--text-secondary)] hover:bg-white/5 hover:text-white"
             }`}
-            title={tabLabel(plan)}
+            title={tabHint(plan)}
           >
-            {tabLabel(plan)}
+            <TabIcon className={`h-5 w-5 sm:h-4 sm:w-4 ${active ? "text-[#070d0d]" : ""}`} />
+            <span className="text-xs font-semibold truncate w-full sm:text-sm">{tabLabel(plan)}</span>
+            <span className={`hidden text-[10px] truncate w-full sm:block ${active ? "text-[#070d0d]/70" : "text-white/35"}`}>
+              {tabHint(plan)}
+            </span>
           </button>
-        ))}
+        );
+        })}
       </div>
 
       {plansToRender.map((plan) => {
@@ -359,7 +527,7 @@ export function DailyPlansSection({
         return (
           <article
             key={plan.id}
-            className={`relative overflow-hidden rounded-2xl border ${accent.border} bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-6 backdrop-blur shadow-[0_16px_44px_-26px_rgba(0,0,0,0.85)] transition-colors`}
+            className={`relative overflow-hidden rounded-2xl border ${accent.border} bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-4 backdrop-blur shadow-[0_16px_44px_-26px_rgba(0,0,0,0.85)] transition-colors sm:p-6`}
           >
             <span
               aria-hidden
@@ -425,9 +593,9 @@ export function DailyPlansSection({
                   />
                   <EstimateBadge minutes={plan.estimateMinutes} />
                 </div>
-                <p className="text-xs text-[var(--text-secondary)] mt-1">
-                  {doneRegular}/{regularSubTasks.length} sub-tasks done
-                  {planned > 0 ? ` · ${formatEstimate(planned)} remaining` : ""}
+                <p className="text-sm text-[var(--text-secondary)] mt-1">
+                  {doneRegular} of {regularSubTasks.length} tasks done
+                  {planned > 0 ? ` · about ${formatEstimate(planned)} left` : ""}
                 </p>
               </div>
               {!isCore ? (
@@ -444,10 +612,10 @@ export function DailyPlansSection({
             </div>
 
             {plan.kind === "deen" ? (
-              <div data-tour="azkar" className="mb-4 grid sm:grid-cols-2 gap-3">
+              <div data-tour="azkar" className="mb-4 grid gap-3 sm:grid-cols-2">
                 <Link
                   href={`/morning-azkar?${azkarQuery}`}
-                  className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
+                  className={`flex min-h-[3.5rem] items-center gap-3 rounded-xl border px-4 py-3.5 transition-colors active:scale-[0.98] ${
                     morningAzkar?.done
                       ? "border-emerald-400/40 bg-emerald-400/10"
                       : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
@@ -471,7 +639,7 @@ export function DailyPlansSection({
                 </Link>
                 <Link
                   href={`/evening-azkar?${azkarQuery}`}
-                  className={`flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors ${
+                  className={`flex min-h-[3.5rem] items-center gap-3 rounded-xl border px-4 py-3.5 transition-colors active:scale-[0.98] ${
                     eveningAzkar?.done
                       ? "border-emerald-400/40 bg-emerald-400/10"
                       : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
@@ -497,7 +665,12 @@ export function DailyPlansSection({
             ) : null}
 
             {hasTimer ? (
-              <div data-tour="timer" className="mb-4 rounded-lg border border-[var(--card-border)] bg-white/[0.03] p-4">
+              <div data-tour="timer" className="mb-4 rounded-xl border border-[var(--card-border)] bg-white/[0.03] p-4 sm:p-5">
+                <p className="text-sm text-center text-[var(--text-secondary)] mb-2">
+                  {timerRunning
+                    ? "Timer is running — tap Stop when you finish"
+                    : "Tap Start when you begin working"}
+                </p>
                 <p
                   className="text-3xl sm:text-4xl font-extrabold tabular-nums text-center"
                   style={{ color: timerRunning ? accent.color : "white" }}
@@ -507,7 +680,7 @@ export function DailyPlansSection({
                 <p className="text-xs text-center text-[var(--text-secondary)] mt-1">
                   {timerRunning ? (
                     <>
-                      Session · {formatClock(sessionSecs)}
+                      This session · {formatClock(sessionSecs)}
                       {sessionFromOtherDay ? (
                         <span className="block text-amber-300/90 mt-0.5">
                           Started {new Date(`${sessionDateKey}T12:00:00`).toLocaleDateString(undefined, {
@@ -519,198 +692,179 @@ export function DailyPlansSection({
                       ) : null}
                     </>
                   ) : (
-                    "Timer stopped"
+                    "Total time logged for this area today"
                   )}
                 </p>
-                <div className="flex justify-center gap-2 mt-3">
+                {loggedTimeLooksImpossible(Math.floor(liveSecs / 60), dateKey, new Date(nowMs)) ? (
+                  <p className="text-xs text-center text-amber-300/95 mt-2 px-2">
+                    This looks too high for today ({formatMinutesLabel(minutesSinceMidnight(dateKey, new Date(nowMs)))}{" "}
+                    elapsed since midnight). Check hours vs minutes, or use Remove to fix.
+                  </p>
+                ) : null}
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-center sm:gap-3">
                   {timerRunning ? (
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => list && onPatch({ action: "stopTimer", list })}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 bg-red-400/10 px-4 py-2 text-sm font-bold text-red-400"
+                      className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-400/40 bg-red-400/10 px-6 py-3.5 text-base font-bold text-red-400 sm:w-auto sm:py-3"
                     >
-                      <Pause className="w-4 h-4" /> Stop
+                      <Pause className="w-5 h-5" /> Stop timer
                     </button>
                   ) : (
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => list && onPatch({ action: "startTimer", list })}
-                      className={`inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-extrabold ${accent.btn}`}
+                      className={`touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-base font-extrabold sm:w-auto sm:py-3 ${accent.btn}`}
                     >
-                      <Play className="w-4 h-4" /> Start
+                      <Play className="w-5 h-5" /> Start timer
                     </button>
                   )}
                 </div>
-                <div className="mt-3 pt-3 border-t border-[var(--card-border)]">
-                  <p className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)] mb-2">
-                    Manual time
+                <div className="mt-4 pt-4 border-t border-[var(--card-border)]">
+                  <p className="text-sm font-medium text-white mb-1">
+                    Already finished? Enter your time
                   </p>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      max={23}
-                      placeholder="h"
-                      value={adjustHours[plan.id] ?? ""}
-                      onChange={(e) => setAdjustHours((s) => ({ ...s, [plan.id]: e.target.value }))}
-                      className="w-14 rounded-md border border-[var(--card-border)] bg-white/5 px-2 py-1.5 text-sm text-white"
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={59}
-                      placeholder="m"
-                      value={adjustMins[plan.id] ?? ""}
-                      onChange={(e) => setAdjustMins((s) => ({ ...s, [plan.id]: e.target.value }))}
-                      className="w-14 rounded-md border border-[var(--card-border)] bg-white/5 px-2 py-1.5 text-sm text-white"
-                    />
+                  <p className="text-xs text-[var(--text-secondary)] mb-3">
+                    Use this if you forgot to start the timer or worked offline. Enter hours and minutes
+                    separately — e.g. 1 hour 30 min, not 90 in the hours box.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-end">
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-[var(--text-secondary)]">Hours</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        placeholder="0"
+                        value={adjustHours[plan.id] ?? ""}
+                        onChange={(e) => setAdjustHours((s) => ({ ...s, [plan.id]: e.target.value }))}
+                        className="w-full rounded-lg border border-[var(--card-border)] bg-white/5 px-2 py-3 text-base text-white text-center sm:w-16 sm:py-2"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      <span className="text-xs text-[var(--text-secondary)]">Minutes</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={59}
+                        placeholder="0"
+                        value={adjustMins[plan.id] ?? ""}
+                        onChange={(e) => setAdjustMins((s) => ({ ...s, [plan.id]: e.target.value }))}
+                        className="w-full rounded-lg border border-[var(--card-border)] bg-white/5 px-2 py-3 text-base text-white text-center sm:w-16 sm:py-2"
+                      />
+                    </label>
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => applyAdjust(plan, "add", 1)}
-                      className="rounded-md border border-[var(--card-border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5"
+                      className="col-span-2 touch-target rounded-xl border border-[var(--card-border)] py-3 text-sm font-semibold hover:bg-white/5 sm:col-span-1 sm:rounded-lg sm:px-4 sm:py-2"
                     >
-                      Add
+                      Add time
                     </button>
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => applyAdjust(plan, "add", -1)}
-                      className="rounded-md border border-red-400/40 bg-red-400/10 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-400/20"
+                      className="touch-target rounded-xl border border-red-400/40 bg-red-400/10 py-3 text-sm font-semibold text-red-400 hover:bg-red-400/20 sm:rounded-lg sm:px-4 sm:py-2"
                     >
-                      Subtract
+                      Remove
                     </button>
                     <button
                       type="button"
                       disabled={busy}
                       onClick={() => applyAdjust(plan, "set")}
-                      className="rounded-md border border-[var(--card-border)] px-3 py-1.5 text-xs font-semibold hover:bg-white/5"
+                      className="touch-target rounded-xl border border-[var(--card-border)] py-3 text-sm font-semibold hover:bg-white/5 sm:rounded-lg sm:px-4 sm:py-2"
+                      title="Replace the total with this amount"
                     >
-                      Set
+                      Set total
                     </button>
                   </div>
                 </div>
               </div>
             ) : null}
 
-            <div data-tour="subtasks" className="border-t border-[var(--card-border)] pt-4">
-              <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-3">Sub-tasks</p>
+            <div data-tour="subtasks" className="border-t border-[var(--card-border)] pt-5">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white">Today&apos;s to-do list</h3>
+                  <p className="mt-0.5 text-xs text-[var(--text-secondary)]">
+                    Tap the circle to mark a task as done.
+                  </p>
+                </div>
+                {regularSubTasks.length > 0 ? (
+                  <span
+                    className="shrink-0 rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 text-xs font-semibold tabular-nums text-[var(--text-secondary)]"
+                  >
+                    {regularSubTasks.filter((t) => t.done).length}/{regularSubTasks.length}
+                  </span>
+                ) : null}
+              </div>
 
               {regularSubTasks.length === 0 ? (
-                <p className="text-sm text-[var(--text-secondary)] text-center py-4">No sub-tasks yet.</p>
+                <p className="rounded-xl border border-dashed border-[var(--card-border)] bg-white/[0.02] py-8 text-center text-sm text-[var(--text-secondary)]">
+                  No tasks yet — add one below to get started.
+                </p>
               ) : (
-                <ul className="space-y-2 mb-4">
+                <ul className="mb-4 space-y-2.5">
                   {sortByPriority(regularSubTasks).map((t) => (
-                    <li
+                    <SubTaskRow
                       key={t.id}
-                      className="flex items-center gap-2 rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-2"
-                    >
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => onPatch({ action: "toggleTask", planId: plan.id, taskId: t.id })}
-                        className="shrink-0"
-                      >
-                        {t.done ? (
-                          <CheckCircle2 className="w-5 h-5" style={{ color: accent.color }} />
-                        ) : (
-                          <Circle className="w-5 h-5 text-[var(--text-secondary)]" />
-                        )}
-                      </button>
-                      {editingTaskId === t.id ? (
-                        <div className="flex flex-1 gap-2">
-                          <input
-                            type="text"
-                            value={editTaskText}
-                            onChange={(e) => setEditTaskText(e.target.value)}
-                            className={`${inputClass} flex-1 py-1 text-sm`}
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            onClick={() => saveSubTask(plan.id, t.id)}
-                            className="text-xs font-semibold shrink-0"
-                            style={{ color: accent.color }}
-                          >
-                            Save
-                          </button>
-                        </div>
-                      ) : (
-                        <span
-                          className={`flex-1 text-sm ${t.done ? "line-through text-[var(--text-secondary)]" : "text-white"}`}
-                        >
-                          {t.text}
-                        </span>
-                      )}
-                      <EstimateBadge minutes={t.estimateMinutes} />
-                      <PriorityBadge
-                        priority={t.priority}
-                        onClick={() =>
-                          onPatch({
-                            action: "setTaskPriority",
-                            planId: plan.id,
-                            taskId: t.id,
-                            priority: nextPriority(t.priority),
-                          })
-                        }
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditingTaskId(t.id);
-                          setEditTaskText(t.text);
-                        }}
-                        className="text-[var(--text-secondary)] hover:text-white p-1"
-                        title="Edit"
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => onPatch({ action: "deleteTask", planId: plan.id, taskId: t.id })}
-                        className="text-red-400/70 hover:text-red-400 p-1"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </li>
+                      task={t}
+                      accentColor={accent.color}
+                      busy={busy}
+                      editing={editingTaskId === t.id}
+                      editText={editTaskText}
+                      onEditTextChange={setEditTaskText}
+                      onToggle={() => onPatch({ action: "toggleTask", planId: plan.id, taskId: t.id })}
+                      onSaveEdit={() => saveSubTask(plan.id, t.id)}
+                      onStartEdit={() => {
+                        setEditingTaskId(t.id);
+                        setEditTaskText(t.text);
+                      }}
+                      onCyclePriority={() =>
+                        onPatch({
+                          action: "setTaskPriority",
+                          planId: plan.id,
+                          taskId: t.id,
+                          priority: nextPriority(t.priority),
+                        })
+                      }
+                      onDelete={() => onPatch({ action: "deleteTask", planId: plan.id, taskId: t.id })}
+                    />
                   ))}
                 </ul>
               )}
 
-              <form onSubmit={(e) => addSubTask(e, plan.id)} className="space-y-2">
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newSubTask[plan.id] ?? ""}
-                    onChange={(e) => setNewSubTask((s) => ({ ...s, [plan.id]: e.target.value }))}
-                    placeholder="Add a sub-task…"
-                    maxLength={500}
-                    className={inputClass}
-                  />
-                  <button
-                    type="submit"
-                    disabled={busy || !(newSubTask[plan.id] || "").trim()}
-                    className={`shrink-0 inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-extrabold disabled:opacity-50 ${accent.btn}`}
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
+              <form
+                onSubmit={(e) => addSubTask(e, plan.id)}
+                className="rounded-xl border border-[var(--card-border)] bg-white/[0.03] p-3 sm:p-3.5"
+              >
+                <input
+                  type="text"
+                  value={newSubTask[plan.id] ?? ""}
+                  onChange={(e) => setNewSubTask((s) => ({ ...s, [plan.id]: e.target.value }))}
+                  placeholder="Type a task, e.g. Reply to emails…"
+                  maxLength={500}
+                  className={`${inputClass} mb-3 w-full text-base`}
+                />
                 <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-medium text-[var(--text-secondary)]">Priority</span>
                   {(Object.keys(PRIORITY_STYLES) as WorkLogPriority[]).map((p) => (
                     <button
                       key={p}
                       type="button"
                       onClick={() => setNewSubPriority((s) => ({ ...s, [plan.id]: p }))}
-                      className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase transition-opacity ${
                         PRIORITY_STYLES[p].className
-                      } ${(newSubPriority[plan.id] ?? "medium") === p ? "" : "opacity-40"}`}
+                      } ${(newSubPriority[plan.id] ?? "medium") === p ? "" : "opacity-35"}`}
                     >
                       {PRIORITY_STYLES[p].label}
                     </button>
                   ))}
+                  <span className="hidden h-4 w-px bg-[var(--card-border)] sm:block" aria-hidden />
+                  <span className="text-xs font-medium text-[var(--text-secondary)]">Est.</span>
                   <input
                     type="number"
                     min={0}
@@ -718,7 +872,8 @@ export function DailyPlansSection({
                     placeholder="0h"
                     value={newSubEstH[plan.id] ?? ""}
                     onChange={(e) => setNewSubEstH((s) => ({ ...s, [plan.id]: e.target.value }))}
-                    className="w-12 rounded border border-[var(--card-border)] bg-white/5 px-1.5 py-1 text-xs text-white"
+                    className="w-14 rounded-lg border border-[var(--card-border)] bg-white/5 px-2 py-1.5 text-xs text-white text-center"
+                    aria-label="Estimated hours"
                   />
                   <input
                     type="number"
@@ -727,8 +882,17 @@ export function DailyPlansSection({
                     placeholder="0m"
                     value={newSubEstM[plan.id] ?? ""}
                     onChange={(e) => setNewSubEstM((s) => ({ ...s, [plan.id]: e.target.value }))}
-                    className="w-12 rounded border border-[var(--card-border)] bg-white/5 px-1.5 py-1 text-xs text-white"
+                    className="w-14 rounded-lg border border-[var(--card-border)] bg-white/5 px-2 py-1.5 text-xs text-white text-center"
+                    aria-label="Estimated minutes"
                   />
+                  <button
+                    type="submit"
+                    disabled={busy || !(newSubTask[plan.id] || "").trim()}
+                    className={`touch-target ml-auto inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-sm font-extrabold disabled:opacity-50 sm:rounded-lg sm:py-2 ${accent.btn}`}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add
+                  </button>
                 </div>
               </form>
             </div>

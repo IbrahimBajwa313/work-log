@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import type { Collection, Filter, UpdateFilter } from "mongodb";
 import { z } from "zod";
+import { capDailyMinutes } from "@/lib/work-log-time-guards";
 import {
   emptyWorkLogDay,
   serializeWorkLogDay,
@@ -410,10 +411,11 @@ export async function applyWorkLogAction(
     case "adjustMinutes": {
       const fields = timerFields(body.list);
       const doc = await getOrCreateAdminDay(coll, dateKey, personId);
-      const next =
+      const rawNext =
         body.mode === "set"
           ? Math.max(0, body.minutes)
           : Math.max(0, (doc[fields.minutes] ?? 0) + body.minutes);
+      const next = capDailyMinutes(rawNext);
       const $set: Record<string, unknown> = { [fields.minutes]: next, updatedAt: now };
       if (body.mode === "set") {
         $set[fields.startedAt] = null;
@@ -474,10 +476,11 @@ export async function applyUserWorkLogAction(
     case "adjustMinutes": {
       const fields = timerFields(body.list);
       const doc = await getOrCreateUserDay(coll, userId, dateKey, personId);
-      const next =
+      const rawNext =
         body.mode === "set"
           ? Math.max(0, body.minutes)
           : Math.max(0, (doc[fields.minutes] ?? 0) + body.minutes);
+      const next = capDailyMinutes(rawNext);
       const $set: Record<string, unknown> = { [fields.minutes]: next, updatedAt: now };
       if (body.mode === "set") {
         $set[fields.startedAt] = null;

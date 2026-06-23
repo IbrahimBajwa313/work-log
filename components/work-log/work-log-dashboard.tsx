@@ -14,11 +14,14 @@ import {
   Clock,
   Flame,
   HelpCircle,
+  Lightbulb,
   ListChecks,
   Loader2,
+  LogOut,
   StickyNote,
   Trash2,
   TrendingUp,
+  X,
 } from "lucide-react";
 import {
   Bar,
@@ -47,6 +50,11 @@ import {
   type SerializedWorkLogPlan,
 } from "@/lib/work-log-plans";
 import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
+import {
+  confirmTimeAdjustment,
+  loggedTimeLooksImpossible,
+  validateTimeAdjustment,
+} from "@/lib/work-log-time-guards";
 
 export type WorkLogDashboardProps = {
   apiBase: string;
@@ -282,6 +290,162 @@ function formatDayLabel(dateKey: string): string {
   });
 }
 
+function greetingForHour(hour: number): string {
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+function formatDayLabelShort(dateKey: string): string {
+  const d = new Date(`${dateKey}T00:00:00`);
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+const VIEW_TABS = [
+  { id: "track" as const, label: "Log my day", mobileLabel: "Today", hint: "Timers & tasks", Icon: ListChecks },
+  { id: "insights" as const, label: "My progress", mobileLabel: "Progress", hint: "Charts & history", Icon: BarChart3 },
+];
+
+function quickStartStorageKey(userKey?: string) {
+  return `worklog_quickstart_dismissed:${userKey ?? "anon"}`;
+}
+
+function viewTabClass(active: boolean, variant: "inline" | "bottom") {
+  if (variant === "bottom") {
+    return `relative flex flex-col items-center justify-center gap-0.5 rounded-xl py-2 min-h-[3.25rem] transition-colors ${
+      active ? "text-[var(--accent-cyan)]" : "text-[var(--text-secondary)]"
+    }`;
+  }
+  return `relative inline-flex flex-col items-center gap-0.5 rounded-xl px-4 py-2.5 min-h-[2.75rem] sm:flex-row sm:gap-2 sm:px-5 sm:py-2 ${
+    active ? "text-[#070d0d]" : "text-[var(--text-secondary)] hover:text-white"
+  }`;
+}
+
+function WorkLogDashboardHeader({
+  title,
+  subtitle,
+  greetingText,
+  todayKey,
+  activePerson,
+  showPersonBadge,
+  backHref,
+  backLabel,
+  onBack,
+  onStartTour,
+  onLogout,
+  showActions,
+}: {
+  title: string;
+  subtitle: string;
+  greetingText: string;
+  todayKey: string;
+  activePerson?: { name: string; color: string };
+  showPersonBadge: boolean;
+  backHref?: string;
+  backLabel?: string;
+  onBack: () => void;
+  onStartTour?: () => void;
+  onLogout?: () => void;
+  showActions: boolean;
+}) {
+  const dateBadge = (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--card-border)] bg-white/5 px-3 py-1 text-xs font-medium text-white/90">
+      <CalendarDays className="h-3.5 w-3.5 shrink-0 text-[var(--accent-cyan)]" />
+      <span className="sm:hidden">{formatDayLabelShort(todayKey)}</span>
+      <span className="hidden sm:inline">Today · {formatDayLabel(todayKey)}</span>
+    </span>
+  );
+
+  const personBadge =
+    showPersonBadge && activePerson ? (
+      <span
+        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold"
+        style={{
+          borderColor: `${activePerson.color}55`,
+          color: activePerson.color,
+          background: `${activePerson.color}14`,
+        }}
+      >
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: activePerson.color }} />
+        {activePerson.name}
+      </span>
+    ) : null;
+
+  const actionButtons = showActions ? (
+    <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+      {onStartTour ? (
+        <button
+          type="button"
+          onClick={onStartTour}
+          data-tour="tour-btn"
+          className="touch-target inline-flex items-center justify-center gap-2 rounded-xl border border-[var(--accent-cyan)]/35 bg-[var(--accent-cyan)]/10 p-2.5 text-sm font-semibold text-[var(--accent-cyan)] transition-all hover:bg-[var(--accent-cyan)]/15 sm:px-4 sm:py-2"
+          title="Take a quick tour of the app"
+        >
+          <HelpCircle className="h-5 w-5" />
+          <span className="hidden sm:inline">Take a tour</span>
+        </button>
+      ) : null}
+      {onLogout ? (
+        <button
+          type="button"
+          onClick={onLogout}
+          className="touch-target inline-flex items-center justify-center rounded-xl border border-[var(--card-border)] bg-white/5 p-2.5 text-sm font-semibold transition-all hover:border-red-400/40 hover:bg-white/10 sm:px-4 sm:py-2"
+          aria-label="Sign out"
+          title="Sign out"
+        >
+          <LogOut className="h-5 w-5 sm:hidden" />
+          <span className="hidden sm:inline">Sign out</span>
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+
+  return (
+    <>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          {backHref ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">{backLabel ?? "Back"}</span>
+            </button>
+          ) : null}
+          <div className="relative shrink-0">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -inset-2 rounded-full bg-[var(--accent-cyan)]/15 blur-2xl sm:-inset-3"
+            />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.png" alt={title} data-tour="logo" className="relative h-10 w-auto sm:h-14" />
+          </div>
+          <div className="hidden min-w-0 flex-1 space-y-2 sm:block">
+            <h1 className="text-2xl font-bold leading-tight text-white">{greetingText}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              {dateBadge}
+              {personBadge}
+            </div>
+            <p className="max-w-xl text-sm leading-relaxed text-[var(--text-secondary)]">{subtitle}</p>
+          </div>
+        </div>
+        {actionButtons}
+      </div>
+
+      <div className="mt-4 space-y-2.5 sm:hidden">
+        <h1 className="text-xl font-bold leading-snug text-white">{greetingText}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          {dateBadge}
+          {personBadge}
+        </div>
+        <p className="text-xs leading-relaxed text-[var(--text-secondary)]">{subtitle}</p>
+      </div>
+    </>
+  );
+}
+
 type TimeList = "work" | "deen" | "fitness";
 
 function historyTimeKey(dateKey: string, list: TimeList): string {
@@ -401,7 +565,7 @@ function HistoryDayTimeEditor({
       <p className="text-[11px] text-[var(--text-secondary)]">
         <strong className="text-white/80 font-semibold">Set</strong> replaces the total (e.g. enter{" "}
         <strong className="text-white/80 font-semibold">6</strong> hours for Business). Add/Subtract change
-        it by the amount entered.
+        it by the amount entered. Use hours and minutes separately — not 90 in the hours box.
       </p>
     </div>
   );
@@ -439,6 +603,27 @@ export function WorkLogDashboard({
   const [historyAdjustM, setHistoryAdjustM] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [activeView, setActiveView] = useState<"track" | "insights">("track");
+  const [showQuickStart, setShowQuickStart] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const dismissed = window.localStorage.getItem(quickStartStorageKey(userEmail)) === "1";
+      setShowQuickStart(!dismissed);
+    } catch {
+      setShowQuickStart(true);
+    }
+  }, [userEmail]);
+
+  const dismissQuickStart = useCallback(() => {
+    setShowQuickStart(false);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(quickStartStorageKey(userEmail), "1");
+    } catch {
+      /* ignore */
+    }
+  }, [userEmail]);
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
@@ -664,15 +849,32 @@ export function WorkLogDashboard({
       const h = Number.parseInt(historyAdjustH[key] || "0", 10);
       const m = Number.parseInt(historyAdjustM[key] || "0", 10);
       if (!Number.isFinite(h) || !Number.isFinite(m)) return;
-      const minutes = (Math.abs(h) * 60 + Math.abs(m)) * sign;
-      if (mode === "add" && minutes === 0) return;
+      const day = days.find((d) => d.dateKey === dateKey);
+      const currentMinutes = Math.floor(
+        (list === "work"
+          ? liveSeconds(day, nowMs)
+          : list === "deen"
+            ? deenLiveSeconds(day, nowMs)
+            : fitnessLiveSeconds(day, nowMs)) / 60
+      );
+      const validation = validateTimeAdjustment({
+        h,
+        m,
+        sign,
+        mode,
+        currentMinutes,
+        dateKey,
+        now: new Date(nowMs),
+      });
+      const minutes = confirmTimeAdjustment(validation, h, dateKey, new Date(nowMs));
+      if (minutes === null) return;
       const ok = await patchDay(dateKey, { action: "adjustMinutes", mode, minutes, list });
       if (ok) {
         setHistoryAdjustH((s) => ({ ...s, [key]: "" }));
         setHistoryAdjustM((s) => ({ ...s, [key]: "" }));
       }
     },
-    [patchDay, historyAdjustH, historyAdjustM]
+    [patchDay, historyAdjustH, historyAdjustM, days, nowMs]
   );
 
   const applyTemplate = async (template: {
@@ -760,6 +962,11 @@ export function WorkLogDashboard({
     }
     const avgDaily = activeDays > 0 ? Math.round((chartTotal / activeDays) * 10) / 10 : 0;
 
+    const todayTimeSuspicious =
+      loggedTimeLooksImpossible(Math.floor(todayWorkSecs / 60), todayKey, now) ||
+      loggedTimeLooksImpossible(Math.floor(todayDeenSecs / 60), todayKey, now) ||
+      loggedTimeLooksImpossible(Math.floor(todayFitnessSecs / 60), todayKey, now);
+
     return {
       todayTotalSecs,
       todayWorkSecs,
@@ -770,6 +977,7 @@ export function WorkLogDashboard({
       streak,
       taskCompletion,
       avgDaily,
+      todayTimeSuspicious,
     };
   }, [days, nowMs, todayKey, todayPlans]);
 
@@ -826,7 +1034,11 @@ export function WorkLogDashboard({
     : 0;
 
   const inputClass =
-    "w-full px-4 py-2.5 bg-white/5 border border-[var(--card-border)] rounded-md text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/35";
+    "w-full px-4 py-3 bg-white/5 border border-[var(--card-border)] rounded-lg text-base text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/35";
+
+  const greetingText = `${greetingForHour(new Date(nowMs).getHours())}${
+    userName ? `, ${userName.split(" ")[0]}` : ""
+  }! 👋`;
 
   if (loading && days.length === 0) {
     return (
@@ -838,7 +1050,7 @@ export function WorkLogDashboard({
 
   return (
     <div
-      className="relative min-h-screen overflow-hidden text-white pt-24 pb-16"
+      className="relative min-h-[100dvh] overflow-hidden text-white pt-4 pb-24 safe-top sm:pt-10 sm:pb-16"
       style={{ background: "var(--bg-gradient)" }}
     >
       {/* Ambient glow accents for depth */}
@@ -847,89 +1059,26 @@ export function WorkLogDashboard({
         <div className="animate-float-slow absolute top-1/3 -right-28 h-[28rem] w-[28rem] rounded-full bg-cyan-400/10 blur-[140px] [animation-delay:-6s]" />
         <div className="absolute -bottom-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-500/10 blur-[130px]" />
       </div>
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6">
+      <div className="relative max-w-7xl mx-auto px-3 sm:px-6">
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-8"
+          className="mb-5 sm:mb-8"
         >
-          <div>
-            {backHref ? (
-              <button
-                type="button"
-                onClick={() => router.push(backHref)}
-                className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-white mb-3"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                {backLabel ?? "Back"}
-              </button>
-            ) : null}
-            <div className="relative inline-block">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -inset-3 rounded-full bg-[var(--accent-cyan)]/15 blur-2xl"
-              />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/logo.png"
-                alt={title}
-                data-tour="logo"
-                className="relative h-12 w-auto sm:h-14"
-              />
-            </div>
-            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-[var(--text-secondary)]">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-medium text-white/90">
-                <CalendarDays className="h-3.5 w-3.5 text-[var(--accent-cyan)]" />
-                {formatDayLabel(todayKey)}
-              </span>
-              <span className="hidden sm:inline text-white/20">·</span>
-              <span>{subtitle}</span>
-              {activePerson ? (
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold"
-                  style={{
-                    borderColor: `${activePerson.color}55`,
-                    color: activePerson.color,
-                    background: `${activePerson.color}14`,
-                  }}
-                >
-                  <span
-                    className="h-1.5 w-1.5 rounded-full"
-                    style={{ background: activePerson.color }}
-                  />
-                  {activePerson.name}
-                </span>
-              ) : null}
-            </p>
-          </div>
-          {userEmail || onLogout || onStartTour ? (
-            <div className="flex items-center gap-3">
-              {userEmail ? (
-                <p className="hidden sm:block text-sm text-[var(--text-secondary)]">{userEmail}</p>
-              ) : null}
-              {onStartTour ? (
-                <button
-                  type="button"
-                  onClick={onStartTour}
-                  data-tour="tour-btn"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold transition-all hover:border-[var(--accent-cyan)]/40 hover:bg-white/10"
-                  title="Take a quick tour of the app"
-                >
-                  <HelpCircle className="h-4 w-4 text-[var(--accent-cyan)]" />
-                  Tour
-                </button>
-              ) : null}
-              {onLogout ? (
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-1.5 text-sm font-semibold transition-all hover:border-red-400/40 hover:bg-white/10"
-                >
-                  Sign out
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          <WorkLogDashboardHeader
+            title={title}
+            subtitle={subtitle}
+            greetingText={greetingText}
+            todayKey={todayKey}
+            activePerson={activePerson}
+            showPersonBadge={Boolean(activePerson && !(settingsEnabled && settings))}
+            backHref={backHref}
+            backLabel={backLabel}
+            onBack={() => router.push(backHref ?? "/")}
+            onStartTour={onStartTour}
+            onLogout={onLogout}
+            showActions={Boolean(userEmail || onLogout || onStartTour)}
+          />
         </motion.div>
 
         {errorMsg ? (
@@ -949,13 +1098,77 @@ export function WorkLogDashboard({
           </div>
         ) : null}
 
-        {/* View switch: day tracking vs. visuals/insights */}
-        <div className="mb-6 flex justify-center">
-          <div className="inline-flex gap-1 rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]/70 p-1.5 backdrop-blur">
-            {([
-              { id: "track", label: "Tracking", Icon: ListChecks },
-              { id: "insights", label: "Insights", Icon: BarChart3 },
-            ] as const).map((tab) => {
+        {showQuickStart ? (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-5 rounded-2xl border border-[var(--accent-cyan)]/25 bg-gradient-to-r from-[var(--accent-cyan)]/10 to-cyan-400/5 p-4 sm:mb-6 sm:p-6"
+          >
+            <div className="flex items-start justify-between gap-3 sm:gap-4">
+              <div className="flex min-w-0 gap-2.5 sm:gap-3">
+                <span className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[var(--accent-cyan)]/30 bg-[var(--accent-cyan)]/15 sm:inline-flex">
+                  <Lightbulb className="h-5 w-5 text-[var(--accent-cyan)]" />
+                </span>
+                <div>
+                  <h2 className="text-base font-bold text-white sm:text-lg">Getting started is easy</h2>
+                  <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                    Follow these three steps — no tech skills needed.
+                  </p>
+                  <ol className="mt-4 space-y-2.5 text-sm text-white/90">
+                    <li className="flex items-start gap-2.5">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-cyan)] text-xs font-bold text-[#070d0d]">
+                        1
+                      </span>
+                      <span>
+                        Pick <strong className="text-white">Work</strong>, <strong className="text-white">Deen</strong>, or{" "}
+                        <strong className="text-white">Fitness</strong> below
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-cyan)] text-xs font-bold text-[#070d0d]">
+                        2
+                      </span>
+                      <span>
+                        Tap <strong className="text-white">Start</strong> when you begin, and{" "}
+                        <strong className="text-white">Stop</strong> when you finish
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2.5">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent-cyan)] text-xs font-bold text-[#070d0d]">
+                        3
+                      </span>
+                      <span>
+                        Add tasks and tap the circle to mark them done ✓
+                      </span>
+                    </li>
+                  </ol>
+                  {onStartTour ? (
+                    <button
+                      type="button"
+                      onClick={onStartTour}
+                      className="mt-4 text-sm font-semibold text-[var(--accent-cyan)] hover:underline"
+                    >
+                      Or take the guided tour →
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={dismissQuickStart}
+                className="touch-target shrink-0 rounded-lg p-2 text-[var(--text-secondary)] transition-colors hover:bg-white/10 hover:text-white"
+                aria-label="Dismiss getting started tips"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </motion.div>
+        ) : null}
+
+        {/* View switch — desktop / tablet */}
+        <div className="mb-2 hidden justify-center sm:flex">
+          <div className="inline-flex w-full max-w-md gap-1 rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]/70 p-1.5 backdrop-blur">
+            {VIEW_TABS.map((tab) => {
               const active = activeView === tab.id;
               return (
                 <button
@@ -964,9 +1177,7 @@ export function WorkLogDashboard({
                   data-tour={`view-tab-${tab.id}`}
                   onClick={() => setActiveView(tab.id)}
                   aria-pressed={active}
-                  className={`relative inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition-colors ${
-                    active ? "text-[#070d0d]" : "text-[var(--text-secondary)] hover:text-white"
-                  }`}
+                  className={`${viewTabClass(active, "inline")} flex-1`}
                 >
                   {active ? (
                     <motion.span
@@ -976,12 +1187,20 @@ export function WorkLogDashboard({
                     />
                   ) : null}
                   <tab.Icon className="relative h-4 w-4" />
-                  <span className="relative">{tab.label}</span>
+                  <span className="relative text-sm font-semibold">{tab.label}</span>
+                  <span className={`relative hidden text-[10px] md:inline ${active ? "text-[#070d0d]/70" : "text-white/40"}`}>
+                    · {tab.hint}
+                  </span>
                 </button>
               );
             })}
           </div>
         </div>
+        <p className="mb-5 hidden text-center text-xs text-[var(--text-secondary)] sm:mb-6 sm:block">
+          {activeView === "track"
+            ? "Use this tab to record what you do today."
+            : "See how you've been doing over the past days and weeks."}
+        </p>
 
         {activeView === "track" ? (
         <>
@@ -995,25 +1214,14 @@ export function WorkLogDashboard({
           </div>
         ) : null}
 
-        {settingsEnabled && settings ? (
-          <div data-tour="templates">
-            <TaskTemplatesPanel
-              templates={settings.taskTemplates}
-              todayTaskTexts={todayTaskTexts}
-              busy={busy}
-              onApply={applyTemplate}
-              onApplyAll={applyAllTemplates}
-              onManage={() => setShowSettingsModal(true)}
-            />
-          </div>
-        ) : null}
-
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-          <div className="mb-5 flex justify-center">
-            <div className="inline-flex items-center gap-2.5 rounded-full border border-[var(--card-border)] bg-white/5 px-4 py-1.5 backdrop-blur">
-              <Clock className="h-4 w-4 text-[var(--accent-cyan)]" />
-              <span className="text-xs uppercase tracking-wider text-[var(--text-secondary)]">Combined today</span>
-              <span className="text-base font-bold tabular-nums text-gradient-cyan">
+          <div className="mb-4 flex justify-center sm:mb-5">
+            <div className="flex w-full max-w-sm flex-col items-center gap-1 rounded-2xl border border-[var(--card-border)] bg-white/5 px-4 py-3 backdrop-blur sm:w-auto sm:max-w-none sm:flex-row sm:gap-2.5 sm:rounded-full sm:px-5 sm:py-2">
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-[var(--accent-cyan)]" />
+                <span className="text-sm text-[var(--text-secondary)]">Total today</span>
+              </div>
+              <span className="text-2xl font-bold tabular-nums text-gradient-cyan sm:text-lg">
                 {formatClock(stats.todayTotalSecs)}
               </span>
             </div>
@@ -1048,11 +1256,14 @@ export function WorkLogDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.05 }}
-          className="glass-card rounded-2xl p-6 mb-6"
+          className="glass-card rounded-2xl p-4 mb-5 sm:p-6 sm:mb-6"
         >
-          <p className="text-xs uppercase tracking-wider text-[var(--text-secondary)] mb-2 flex items-center gap-1.5">
-            <StickyNote className="w-3.5 h-3.5" />
-            Day notes
+          <p className="text-sm font-semibold text-white mb-1 flex items-center gap-2">
+            <StickyNote className="w-4 h-4 text-[var(--accent-cyan)]" />
+            Notes for today
+          </p>
+          <p className="text-xs text-[var(--text-secondary)] mb-3">
+            Write anything you want to remember — wins, reminders, or how the day went.
           </p>
           <textarea
             value={notesDraft}
@@ -1062,45 +1273,61 @@ export function WorkLogDashboard({
             }}
             rows={3}
             maxLength={5000}
-            placeholder="Anything worth remembering about today…"
-            className={`${inputClass} resize-y`}
+            placeholder="e.g. Finished the project proposal, need to follow up tomorrow…"
+            className={`${inputClass} resize-y text-base`}
           />
           {notesDirty ? (
             <button
               type="button"
               onClick={saveNotes}
               disabled={savingNotes}
-              className="mt-2 rounded-md border border-[var(--accent-cyan)]/40 px-4 py-2 text-sm font-semibold text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10 disabled:opacity-50"
+              className="mt-3 w-full rounded-xl border border-[var(--accent-cyan)]/40 py-3 text-base font-semibold text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10 disabled:opacity-50 sm:mt-2 sm:w-auto sm:rounded-md sm:px-4 sm:py-2 sm:text-sm"
             >
               {savingNotes ? "Saving…" : "Save notes"}
             </button>
           ) : null}
         </motion.section>
+
+        {settingsEnabled && settings ? (
+          <div data-tour="templates">
+            <TaskTemplatesPanel
+              templates={settings.taskTemplates}
+              todayTaskTexts={todayTaskTexts}
+              busy={busy}
+              onApply={applyTemplate}
+              onApplyAll={applyAllTemplates}
+              onManage={() => setShowSettingsModal(true)}
+            />
+          </div>
+        ) : null}
         </>
         ) : (
         <>
         {/* Stats row */}
-        <div data-tour="stats" className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+        <div data-tour="stats" className="grid grid-cols-2 gap-3 mb-5 sm:gap-4 sm:mb-6 lg:grid-cols-5">
           {[
             {
-              label: "Today (total)",
+              label: "Today",
               value: formatDuration(stats.todayTotalSecs),
-              sub: `${formatDuration(stats.todayWorkSecs)} work · ${formatDuration(stats.todayDeenSecs)} deen · ${formatDuration(stats.todayFitnessSecs)} fitness`,
+              sub: stats.todayTimeSuspicious
+                ? `Looks high for today — check hours vs minutes in each area`
+                : `${formatDuration(stats.todayWorkSecs)} work · ${formatDuration(stats.todayDeenSecs)} deen · ${formatDuration(stats.todayFitnessSecs)} fitness`,
               Icon: Clock,
-              tint: "var(--accent-cyan)",
+              tint: stats.todayTimeSuspicious ? "#fbbf24" : "var(--accent-cyan)",
             },
-            { label: "Last 7 days", value: formatDuration(stats.weekSecs), Icon: CalendarDays, tint: "#22d3ee" },
+            { label: "This week", value: formatDuration(stats.weekSecs), Icon: CalendarDays, tint: "#22d3ee" },
             { label: "This month", value: formatDuration(stats.monthSecs), Icon: ListChecks, tint: "#a78bfa" },
             {
-              label: "Day streak",
+              label: "Streak",
               value: `${stats.streak} ${stats.streak === 1 ? "day" : "days"}`,
+              sub: stats.streak > 0 ? "Keep it going! 🔥" : "Log time today to start",
               Icon: Flame,
               tint: "#fb923c",
             },
             {
-              label: "Tasks done",
+              label: "Tasks completed",
               value: `${stats.taskCompletion}%`,
-              sub: stats.avgDaily > 0 ? `~${stats.avgDaily}h avg active day` : undefined,
+              sub: stats.avgDaily > 0 ? `~${stats.avgDaily}h on active days` : "Add tasks to track progress",
               Icon: TrendingUp,
               tint: "#34d399",
             },
@@ -1111,7 +1338,9 @@ export function WorkLogDashboard({
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.05, duration: 0.35 }}
               whileHover={{ y: -4 }}
-              className="group glass-card relative overflow-hidden rounded-2xl p-5"
+              className={`group glass-card relative overflow-hidden rounded-2xl p-4 sm:p-5 ${
+                i === 4 ? "col-span-2 lg:col-span-1" : ""
+              }`}
             >
               <span
                 aria-hidden
@@ -1129,11 +1358,11 @@ export function WorkLogDashboard({
                 >
                   <s.Icon className="h-4 w-4" />
                 </span>
-                <p className="text-[11px] uppercase tracking-wider text-[var(--text-secondary)]">{s.label}</p>
+                <p className="text-xs font-medium text-[var(--text-secondary)]">{s.label}</p>
               </div>
-              <p className="mt-2 text-2xl font-bold tabular-nums text-white">{s.value}</p>
+              <p className="mt-2 text-xl font-bold tabular-nums text-white sm:text-2xl">{s.value}</p>
               {"sub" in s && s.sub ? (
-                <p className="mt-1 text-[11px] text-[var(--text-secondary)]">{s.sub}</p>
+                <p className="mt-1 text-[10px] leading-snug text-[var(--text-secondary)] sm:text-[11px]">{s.sub}</p>
               ) : null}
             </motion.div>
           ))}
@@ -1145,24 +1374,25 @@ export function WorkLogDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="glass-card rounded-2xl p-6 mb-6"
+          className="glass-card rounded-2xl p-4 mb-5 sm:p-6 sm:mb-6"
         >
-          <h2 className="flex items-center gap-2 text-lg font-bold text-white mb-1">
+          <h2 className="flex items-center gap-2 text-base font-bold text-white mb-1 sm:text-lg">
             <BarChart3 className="h-5 w-5 text-[var(--accent-cyan)]" />
-            Hours per day — last 14 days
+            Your last 14 days
           </h2>
-          <p className="text-xs text-[var(--text-secondary)] mb-4">
-            Stacked bars show business, Deen, and fitness — your full logged time each day.
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            Each bar shows how many hours you logged — split by Work, Deen, and Fitness.
           </p>
-          <div className="h-64">
+          <div className="h-56 sm:h-64 -mx-1">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+              <BarChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
                 <XAxis
                   dataKey="label"
-                  tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 11 }}
+                  tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 10 }}
                   axisLine={{ stroke: "rgba(255,255,255,0.15)" }}
                   tickLine={false}
+                  interval="preserveStartEnd"
                 />
                 <YAxis
                   tick={{ fill: "rgba(255,255,255,0.55)", fontSize: 11 }}
@@ -1189,7 +1419,8 @@ export function WorkLogDashboard({
                   }}
                 />
                 <Legend
-                  wrapperStyle={{ fontSize: 12, color: "rgba(255,255,255,0.7)" }}
+                  wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.7)", paddingTop: 8 }}
+                  iconSize={10}
                   formatter={(value) =>
                     value === "business"
                       ? "Business"
@@ -1252,12 +1483,15 @@ export function WorkLogDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
-          className="glass-card rounded-2xl p-6"
+          className="glass-card rounded-2xl p-4 sm:p-6"
         >
-          <h2 className="flex items-center gap-2 text-lg font-bold text-white mb-4">
+          <h2 className="flex items-center gap-2 text-base font-bold text-white mb-1 sm:text-lg">
             <CalendarDays className="h-5 w-5 text-[var(--accent-cyan)]" />
-            History
+            Past days
           </h2>
+          <p className="text-sm text-[var(--text-secondary)] mb-4">
+            Tap any day to see what you logged and which tasks you completed.
+          </p>
 
           {loading ? (
             <div className="flex justify-center py-12">
@@ -1396,6 +1630,35 @@ export function WorkLogDashboard({
         </>
         )}
       </div>
+
+      {/* Mobile bottom navigation — thumb-friendly view switch */}
+      <nav
+        aria-label="Main sections"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--card-border)] bg-[var(--card-bg)]/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom,0px)] sm:hidden"
+      >
+        <div className="grid grid-cols-2 gap-1 p-2">
+          {VIEW_TABS.map((tab) => {
+            const active = activeView === tab.id;
+            return (
+              <button
+                key={`mobile-${tab.id}`}
+                type="button"
+                data-tour={tab.id === "track" ? "view-tab-track" : tab.id === "insights" ? "view-tab-insights" : undefined}
+                onClick={() => setActiveView(tab.id)}
+                aria-pressed={active}
+                aria-current={active ? "page" : undefined}
+                className={viewTabClass(active, "bottom")}
+              >
+                {active ? (
+                  <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-[var(--accent-cyan)]" />
+                ) : null}
+                <tab.Icon className="h-5 w-5" />
+                <span className="text-xs font-semibold">{tab.mobileLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
 
       {showSettingsModal && settings ? (
         <WorkLogSettingsModal

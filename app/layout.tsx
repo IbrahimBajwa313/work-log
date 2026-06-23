@@ -14,6 +14,12 @@ export const metadata: Metadata = {
     "Track working hours, manage daily tasks with priorities, log Deen and fitness goals, and review streaks and weekly charts.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover" as const,
+};
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
