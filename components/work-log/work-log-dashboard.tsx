@@ -55,6 +55,14 @@ import {
   loggedTimeLooksImpossible,
   validateTimeAdjustment,
 } from "@/lib/work-log-time-guards";
+import {
+  deleteWorkLogDay,
+  fetchWorkLogDays,
+  fetchWorkLogSettings,
+  patchWorkLogDay,
+  patchWorkLogSettings,
+} from "@/lib/offline/work-log-api";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 
 export type WorkLogDashboardProps = {
   apiBase: string;
@@ -70,6 +78,8 @@ export type WorkLogDashboardProps = {
   onStartTour?: () => void;
   /** When set, enables people profiles, saved tasks, and daily goals. */
   settingsApiBase?: string;
+  /** User id for offline cache (enables offline mode when set). */
+  offlineUserId?: string;
 };
 
 type WorkLogPriority = "high" | "medium" | "low";
@@ -583,6 +593,7 @@ export function WorkLogDashboard({
   onLogout,
   onStartTour,
   settingsApiBase,
+  offlineUserId,
 }: WorkLogDashboardProps) {
   const router = useRouter();
   const settingsEnabled = Boolean(settingsApiBase);
@@ -654,6 +665,25 @@ export function WorkLogDashboard({
     setErrorMsg(null);
     setLoading(true);
     try {
+      if (offlineUserId) {
+        const result = await fetchWorkLogDays(
+          apiBase,
+          activePersonId,
+          offlineUserId,
+          authorizedInit
+        );
+        if (!result.ok) {
+          setDays([]);
+          setErrorMsg(result.error ?? "Failed to load work log.");
+          return;
+        }
+        setDays((result.data?.days ?? []) as WorkLogDay[]);
+        if (result.fromCache && result.offline) {
+          setErrorMsg(null);
+        }
+        return;
+      }
+
       const personQuery = settingsEnabled
         ? `?personId=${encodeURIComponent(activePersonId)}`
         : "";
@@ -678,11 +708,23 @@ export function WorkLogDashboard({
     } finally {
       setLoading(false);
     }
-  }, [apiBase, authorizedInit, activePersonId, settingsEnabled]);
+  }, [apiBase, authorizedInit, activePersonId, settingsEnabled, offlineUserId]);
 
   const loadSettings = useCallback(async () => {
     if (!settingsApiBase) return;
     try {
+      if (offlineUserId) {
+        const result = await fetchWorkLogSettings(
+          settingsApiBase,
+          offlineUserId,
+          authorizedInit
+        );
+        if (result.ok && result.data?.settings) {
+          setSettings(result.data.settings as WorkLogSettings);
+        }
+        return;
+      }
+
       const res = await fetch(settingsApiBase, authorizedInit());
       const data = await res.json().catch(() => null);
       if (res.ok && data && typeof data === "object" && "settings" in data) {
@@ -691,7 +733,7 @@ export function WorkLogDashboard({
     } catch {
       // Settings are optional enhancement.
     }
-  }, [settingsApiBase, authorizedInit]);
+  }, [settingsApiBase, authorizedInit, offlineUserId]);
 
   useEffect(() => {
     load();
@@ -700,6 +742,11 @@ export function WorkLogDashboard({
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
+
+  useOfflineSync({
+    authorizedInit,
+    onSynced: () => void load(),
+  });
 
   useEffect(() => {
     if (!settingsEnabled) return;
@@ -729,6 +776,25 @@ export function WorkLogDashboard({
       setErrorMsg(null);
       setBusy(true);
       try {
+        if (offlineUserId) {
+          const result = await patchWorkLogDay(
+            apiBase,
+            dateKey,
+            activePersonId,
+            offlineUserId,
+            body,
+            authorizedInit,
+            days as import("@/lib/admin-work-log").SerializedWorkLogDay[]
+          );
+          if (!result.ok) {
+            setErrorMsg(result.error ?? "Request failed.");
+            return false;
+          }
+          const day = result.data?.day as WorkLogDay | undefined;
+          if (day) mergeDay(day);
+          return true;
+        }
+
         const personQuery = settingsEnabled
           ? `?personId=${encodeURIComponent(activePersonId)}`
           : "";
@@ -759,7 +825,7 @@ export function WorkLogDashboard({
         setBusy(false);
       }
     },
-    [apiBase, authorizedInit, mergeDay, activePersonId, settingsEnabled]
+    [apiBase, authorizedInit, mergeDay, activePersonId, settingsEnabled, offlineUserId, days]
   );
 
   const todayPlans = useMemo(() => resolveClientPlans(today), [today]);
@@ -785,6 +851,23 @@ export function WorkLogDashboard({
       if (!settingsApiBase) return false;
       setBusy(true);
       try {
+        if (offlineUserId) {
+          const result = await patchWorkLogSettings(
+            settingsApiBase,
+            offlineUserId,
+            body,
+            authorizedInit
+          );
+          if (!result.ok) {
+            setErrorMsg(result.error ?? "Settings update failed");
+            return false;
+          }
+          if (result.data?.settings) {
+            setSettings(result.data.settings as WorkLogSettings);
+          }
+          return true;
+        }
+
         const res = await fetch(
           settingsApiBase,
           authorizedInit({
@@ -813,7 +896,7 @@ export function WorkLogDashboard({
         setBusy(false);
       }
     },
-    [settingsApiBase, authorizedInit]
+    [settingsApiBase, authorizedInit, offlineUserId]
   );
 
   const saveNotes = async () => {
@@ -826,6 +909,22 @@ export function WorkLogDashboard({
   const deleteDay = async (dateKey: string) => {
     if (!confirm(`Delete the entry for ${formatDayLabel(dateKey)}?`)) return;
     try {
+      if (offlineUserId) {
+        const result = await deleteWorkLogDay(
+          apiBase,
+          dateKey,
+          activePersonId,
+          offlineUserId,
+          authorizedInit
+        );
+        if (!result.ok) {
+          alert("Could not delete.");
+          return;
+        }
+        setDays((prev) => prev.filter((d) => d.dateKey !== dateKey));
+        return;
+      }
+
       const personQuery = settingsEnabled
         ? `?personId=${encodeURIComponent(activePersonId)}`
         : "";

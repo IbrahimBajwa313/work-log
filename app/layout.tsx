@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { SiteFooter } from "@/components/site-footer";
+import { PwaShell } from "@/components/pwa/pwa-shell";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
@@ -12,18 +13,36 @@ export const metadata: Metadata = {
   },
   description:
     "Track working hours, manage daily tasks with priorities, log Deen and fitness goals, and review streaks and weekly charts.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Work Log",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
-export const viewport = {
+export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  viewportFit: "cover" as const,
+  viewportFit: "cover",
+  themeColor: "#00ffcc",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased flex min-h-screen flex-col`}>
+        <PwaShell />
         <div className="flex-1">{children}</div>
         <SiteFooter />
       </body>

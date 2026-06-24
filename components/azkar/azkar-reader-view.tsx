@@ -21,6 +21,7 @@ import {
 import type { AdhkarItem, AzkarPeriod } from "@/lib/azkar";
 import { AZKAR_PERIOD_CONFIG } from "@/lib/data/azkar-config";
 import { useWorkLogSessionGate } from "@/hooks/useWorkLogSessionGate";
+import { fetchAzkarState, patchAzkar } from "@/lib/offline/azkar-api";
 
 type AzkarApiState = {
   items: AdhkarItem[];
@@ -407,7 +408,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   const config = AZKAR_PERIOD_CONFIG[period];
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { ready, isAuthenticated } = useWorkLogSessionGate();
+  const { ready, isAuthenticated, user } = useWorkLogSessionGate();
 
   const dateKey = searchParams.get("date") || localDateKey();
   const personId = searchParams.get("personId") || "primary";
@@ -434,25 +435,24 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
       if (flushingRef.current && !useBeacon) return;
       pendingRef.current -= secs;
 
+      const userId = user?.id;
+      if (!userId) return;
+
       const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
       const url = `/api/work-log/${dateKey}/azkar/${period}${qs}`;
       const payload = JSON.stringify({ action: "addTime", seconds: secs });
+      const body = { action: "addTime", seconds: secs };
 
       if (useBeacon && typeof navigator !== "undefined" && navigator.sendBeacon) {
         navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }));
+        void patchAzkar(dateKey, period, personId, userId, body);
         return;
       }
 
       flushingRef.current = true;
-      void fetch(url, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: payload,
-        keepalive: true,
-      })
-        .then((res) => {
-          if (!res.ok) pendingRef.current += secs;
+      void patchAzkar(dateKey, period, personId, userId, body)
+        .then((result) => {
+          if (!result.ok) pendingRef.current += secs;
         })
         .catch(() => {
           pendingRef.current += secs;
@@ -461,32 +461,28 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
           flushingRef.current = false;
         });
     },
-    [dateKey, period, personId]
+    [dateKey, period, personId, user?.id]
   );
 
   const load = useCallback(async () => {
     setError("");
     setLoading(true);
     try {
-      const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
-      const res = await fetch(`/api/work-log/${dateKey}/azkar/${period}${qs}`, {
-        credentials: "include",
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        throw new Error(
-          data && typeof data === "object" && "error" in data
-            ? String((data as { error: unknown }).error)
-            : "Failed to load"
-        );
+      const userId = user?.id;
+      if (!userId) throw new Error("Not signed in");
+
+      const result = await fetchAzkarState(dateKey, period, personId, userId);
+      if (!result.ok || !result.state) {
+        throw new Error(result.error ?? "Failed to load");
       }
-      const secondsSpent = (data as AzkarApiState).secondsSpent ?? 0;
+      const data = result.state;
+      const secondsSpent = data.secondsSpent ?? 0;
       setState({
-        items: (data as AzkarApiState).items,
-        tickedIds: (data as AzkarApiState).tickedIds ?? [],
-        complete: Boolean((data as AzkarApiState).complete),
-        total: (data as AzkarApiState).total ?? 0,
-        read: (data as AzkarApiState).read ?? 0,
+        items: data.items as AdhkarItem[],
+        tickedIds: data.tickedIds ?? [],
+        complete: Boolean(data.complete),
+        total: data.total ?? 0,
+        read: data.read ?? 0,
         secondsSpent,
       });
       if (!baseLoadedRef.current) {
@@ -498,7 +494,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
     } finally {
       setLoading(false);
     }
-  }, [dateKey, personId, period]);
+  }, [dateKey, personId, period, user?.id]);
 
   useEffect(() => {
     if (ready && isAuthenticated) void load();
@@ -556,24 +552,23 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   const tickedSet = useMemo(() => new Set(state?.tickedIds ?? []), [state?.tickedIds]);
 
   const toggle = async (adhkarId: string) => {
+    const userId = user?.id;
+    if (!userId) return;
     setBusyId(adhkarId);
     try {
-      const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
-      const res = await fetch(`/api/work-log/${dateKey}/azkar/${period}${qs}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "toggle", adhkarId }),
+      const result = await patchAzkar(dateKey, period, personId, userId, {
+        action: "toggle",
+        adhkarId,
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) throw new Error("Failed to save progress");
+      if (!result.ok || !result.state) throw new Error("Failed to save progress");
+      const data = result.state;
       setState({
-        items: (data as AzkarApiState).items ?? state?.items ?? [],
-        tickedIds: (data as AzkarApiState).tickedIds ?? [],
-        complete: Boolean((data as AzkarApiState).complete),
-        total: (data as AzkarApiState).total ?? 0,
-        read: (data as AzkarApiState).read ?? 0,
-        secondsSpent: (data as AzkarApiState).secondsSpent ?? state?.secondsSpent ?? 0,
+        items: (data.items as AdhkarItem[]) ?? state?.items ?? [],
+        tickedIds: data.tickedIds ?? [],
+        complete: Boolean(data.complete),
+        total: data.total ?? 0,
+        read: data.read ?? 0,
+        secondsSpent: data.secondsSpent ?? state?.secondsSpent ?? 0,
       });
     } catch {
       setError("Could not save progress. Try again.");

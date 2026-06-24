@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { cacheUser, clearCachedUser, getCachedUser } from "@/lib/offline/store";
 
 export type WorklogUser = {
   id: string;
@@ -10,6 +11,7 @@ export type WorklogUser = {
 
 /**
  * Restores WorkLog UI from the `worklog_session` cookie and supports signup/login.
+ * Caches the user locally so the app stays usable offline after a successful sign-in.
  */
 export function useWorkLogSessionGate() {
   const [ready, setReady] = useState(false);
@@ -24,13 +26,30 @@ export function useWorkLogSessionGate() {
         if (data.user) {
           setUser(data.user);
           setIsAuthenticated(true);
+          await cacheUser(data.user);
           return true;
         }
       }
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        const cached = await getCachedUser();
+        if (cached) {
+          setUser(cached);
+          setIsAuthenticated(true);
+          return true;
+        }
+      }
+
       setUser(null);
       setIsAuthenticated(false);
       return false;
     } catch {
+      const cached = await getCachedUser();
+      if (cached) {
+        setUser(cached);
+        setIsAuthenticated(true);
+        return true;
+      }
       setUser(null);
       setIsAuthenticated(false);
       return false;
@@ -66,6 +85,7 @@ export function useWorkLogSessionGate() {
       if (data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
+        await cacheUser(data.user);
       } else {
         await refreshSession();
       }
@@ -89,6 +109,7 @@ export function useWorkLogSessionGate() {
       if (data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
+        await cacheUser(data.user);
       } else {
         await refreshSession();
       }
@@ -98,10 +119,15 @@ export function useWorkLogSessionGate() {
   );
 
   const logout = useCallback(async () => {
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "include",
-    });
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch {
+      // still clear local session when offline
+    }
+    await clearCachedUser();
     setUser(null);
     setIsAuthenticated(false);
   }, []);

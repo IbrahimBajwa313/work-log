@@ -4,3 +4,9 @@ node_modules
 .env.local
 .env*.local
 *.log
+
+# PWA build artifacts (regenerated on each production build)
+public/sw.js
+public/workbox-*.js
+public/fallback-*.js
+public/swe-worker-*.js

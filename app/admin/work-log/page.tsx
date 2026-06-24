@@ -16,6 +16,7 @@ export default function AdminWorkLogPage() {
           apiBase="/api/admin/work-log"
           settingsApiBase="/api/admin/work-log/settings"
           authorizedInit={authorizedInit}
+          offlineUserId="admin"
           backHref="/admin"
           backLabel="Dashboard"
           title="Work Logging"
