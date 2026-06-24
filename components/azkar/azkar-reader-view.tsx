@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -19,9 +18,11 @@ import {
   Type,
 } from "lucide-react";
 import type { AdhkarItem, AzkarPeriod } from "@/lib/azkar";
-import { AZKAR_PERIOD_CONFIG } from "@/lib/data/azkar-config";
+import { AZKAR_PERIOD_CONFIG, getAdhkarForPeriod } from "@/lib/data/azkar-config";
 import { useWorkLogSessionGate } from "@/hooks/useWorkLogSessionGate";
 import { fetchAzkarState, patchAzkar } from "@/lib/offline/azkar-api";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
+import { AppSplash } from "@/components/app-splash";
 
 type AzkarApiState = {
   items: AdhkarItem[];
@@ -49,6 +50,17 @@ function localDateKey(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+function buildInitialAzkarState(period: AzkarPeriod): AzkarApiState {
+  const items = getAdhkarForPeriod(period);
+  return {
+    items,
+    tickedIds: [],
+    complete: false,
+    total: items.length,
+    read: 0,
+    secondsSpent: 0,
+  };
+}
 const AZKAR_FONT_SIZE_KEY = "azkar-arabic-font-size";
 const AZKAR_FONT_SIZES_PX = [18, 22, 26, 30, 34, 38] as const;
 const AZKAR_FONT_SIZE_DEFAULT_INDEX = 1;
@@ -409,11 +421,12 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { ready, isAuthenticated, user } = useWorkLogSessionGate();
+  const online = useOnlineStatus();
 
   const dateKey = searchParams.get("date") || localDateKey();
   const personId = searchParams.get("personId") || "primary";
 
-  const [state, setState] = useState<AzkarApiState | null>(null);
+  const [state, setState] = useState<AzkarApiState | null>(() => buildInitialAzkarState(period));
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -436,17 +449,13 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
       pendingRef.current -= secs;
 
       const userId = user?.id;
-      if (!userId) return;
-
-      const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
-      const url = `/api/work-log/${dateKey}/azkar/${period}${qs}`;
-      const payload = JSON.stringify({ action: "addTime", seconds: secs });
       const body = { action: "addTime", seconds: secs };
 
-      if (useBeacon && typeof navigator !== "undefined" && navigator.sendBeacon) {
+      if (useBeacon && typeof navigator !== "undefined" && navigator.sendBeacon && userId) {
+        const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
+        const url = `/api/work-log/${dateKey}/azkar/${period}${qs}`;
+        const payload = JSON.stringify({ action: "addTime", seconds: secs });
         navigator.sendBeacon(url, new Blob([payload], { type: "application/json" }));
-        void patchAzkar(dateKey, period, personId, userId, body);
-        return;
       }
 
       flushingRef.current = true;
@@ -468,10 +477,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
     setError("");
     setLoading(true);
     try {
-      const userId = user?.id;
-      if (!userId) throw new Error("Not signed in");
-
-      const result = await fetchAzkarState(dateKey, period, personId, userId);
+      const result = await fetchAzkarState(dateKey, period, personId, user?.id);
       if (!result.ok || !result.state) {
         throw new Error(result.error ?? "Failed to load");
       }
@@ -497,13 +503,13 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   }, [dateKey, personId, period, user?.id]);
 
   useEffect(() => {
-    if (ready && isAuthenticated) void load();
-  }, [ready, isAuthenticated, load]);
+    if (ready) void load();
+  }, [ready, load]);
 
   // Count reading time only while the tab is visible; flush periodically and
   // when the page is hidden, navigated away, or unmounted.
   useEffect(() => {
-    if (!ready || !isAuthenticated) return;
+    if (!ready) return;
 
     let last = Date.now();
     const countId = setInterval(() => {
@@ -540,7 +546,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
       window.removeEventListener("pagehide", onPageHide);
       flushPending(true);
     };
-  }, [ready, isAuthenticated, flushPending]);
+  }, [ready, flushPending]);
 
   const totalSecondsSpent = baseSeconds + sessionSeconds;
 
@@ -552,11 +558,9 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   const tickedSet = useMemo(() => new Set(state?.tickedIds ?? []), [state?.tickedIds]);
 
   const toggle = async (adhkarId: string) => {
-    const userId = user?.id;
-    if (!userId) return;
     setBusyId(adhkarId);
     try {
-      const result = await patchAzkar(dateKey, period, personId, userId, {
+      const result = await patchAzkar(dateKey, period, personId, user?.id, {
         action: "toggle",
         adhkarId,
       });
@@ -580,24 +584,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
   const HeaderIcon = config.headerIcon === "sun" ? Sun : Moon;
 
   if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-gradient)" }}>
-        <Loader2 className="w-10 h-10 animate-spin text-[var(--accent-cyan)]" />
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg-gradient)" }}>
-        <div className="text-center max-w-md">
-          <p className="text-white mb-4">{config.signInMessage}</p>
-          <Link href="/" className="text-[var(--accent-cyan)] font-semibold hover:underline">
-            Go to sign in
-          </Link>
-        </div>
-      </div>
-    );
+    return <AppSplash />;
   }
 
   const progressPct = state?.total ? (state.read / state.total) * 100 : 0;
@@ -635,6 +622,12 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
           <ArrowLeft className="w-4 h-4" />
           Back to Work Log
         </button>
+
+        {!isAuthenticated && !online ? (
+          <p className="mb-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+            Offline mode — progress is saved on this device. Sign in when online to sync with your account.
+          </p>
+        ) : null}
 
         <header className="mb-6 lg:mb-8">
           <div className="flex items-center gap-2 mb-2">

@@ -63,6 +63,7 @@ import {
   patchWorkLogSettings,
 } from "@/lib/offline/work-log-api";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
+import { AppSplash } from "@/components/app-splash";
 
 export type WorkLogDashboardProps = {
   apiBase: string;
@@ -1140,11 +1141,7 @@ export function WorkLogDashboard({
   }! 👋`;
 
   if (loading && days.length === 0) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-gradient)" }}>
-        <Loader2 className="w-10 h-10 animate-spin text-[var(--accent-cyan)]" />
-      </div>
-    );
+    return <AppSplash />;
   }
 
   return (

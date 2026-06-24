@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { CheckCircle2, Clock, Eye, EyeOff, ListChecks, Loader2, Sparkles } from "lucide-react";
+import { AppSplash } from "@/components/app-splash";
 import { WorkLogDashboard } from "@/components/work-log/work-log-dashboard";
 import {
   SpotlightTour,
@@ -188,11 +189,7 @@ export default function HomePage() {
   };
 
   if (!ready) {
-    return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-gradient)" }}>
-        <Loader2 className="w-10 h-10 animate-spin text-[var(--accent-cyan)]" />
-      </div>
-    );
+    return <AppSplash />;
   }
 
   if (!isAuthenticated) {

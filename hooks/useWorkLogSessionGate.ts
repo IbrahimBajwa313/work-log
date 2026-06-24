@@ -19,6 +19,26 @@ export function useWorkLogSessionGate() {
   const [user, setUser] = useState<WorklogUser | null>(null);
 
   const refreshSession = useCallback(async () => {
+    const tryCachedUser = async () => {
+      const cached = await getCachedUser();
+      if (cached) {
+        setUser(cached);
+        setIsAuthenticated(true);
+        return true;
+      }
+      return false;
+    };
+
+    const offline = typeof navigator !== "undefined" && !navigator.onLine;
+    if (offline) {
+      const ok = await tryCachedUser();
+      if (!ok) {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
+      return ok;
+    }
+
     try {
       const res = await fetch("/api/auth/me", { credentials: "include" });
       if (res.ok) {
@@ -31,28 +51,19 @@ export function useWorkLogSessionGate() {
         }
       }
 
-      if (typeof navigator !== "undefined" && !navigator.onLine) {
-        const cached = await getCachedUser();
-        if (cached) {
-          setUser(cached);
-          setIsAuthenticated(true);
-          return true;
-        }
+      const ok = await tryCachedUser();
+      if (!ok) {
+        setUser(null);
+        setIsAuthenticated(false);
       }
-
-      setUser(null);
-      setIsAuthenticated(false);
-      return false;
+      return ok;
     } catch {
-      const cached = await getCachedUser();
-      if (cached) {
-        setUser(cached);
-        setIsAuthenticated(true);
-        return true;
+      const ok = await tryCachedUser();
+      if (!ok) {
+        setUser(null);
+        setIsAuthenticated(false);
       }
-      setUser(null);
-      setIsAuthenticated(false);
-      return false;
+      return ok;
     }
   }, []);
 

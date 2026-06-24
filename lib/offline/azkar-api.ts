@@ -6,6 +6,7 @@ import {
   getCachedAzkar,
   type CachedAzkarState,
 } from "@/lib/offline/store";
+import { canSyncAzkarProgress, resolveAzkarUserId } from "@/lib/offline/azkar-local";
 import { isOnline } from "@/lib/offline/work-log-api";
 
 function buildOfflineAzkarState(
@@ -24,12 +25,13 @@ export async function fetchAzkarState(
   dateKey: string,
   period: AzkarPeriod,
   personId: string,
-  userId: string
+  userId?: string | null
 ): Promise<{ ok: boolean; state?: CachedAzkarState; fromCache?: boolean; error?: string }> {
+  const resolvedUserId = resolveAzkarUserId(userId);
   const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
   const url = `/api/work-log/${dateKey}/azkar/${period}${qs}`;
 
-  if (isOnline()) {
+  if (isOnline() && canSyncAzkarProgress(resolvedUserId)) {
     try {
       const res = await fetch(url, { credentials: "include" });
       const data = await res.json().catch(() => null);
@@ -42,20 +44,21 @@ export async function fetchAzkarState(
           read: (data as CachedAzkarState).read ?? 0,
           secondsSpent: (data as CachedAzkarState).secondsSpent ?? 0,
         };
-        await cacheAzkar(userId, personId, dateKey, period, state);
+        await cacheAzkar(resolvedUserId, personId, dateKey, period, state);
         return { ok: true, state };
       }
     } catch {
-      // fall through
+      // fall through to cache / bundled content
     }
   }
 
-  const cached = await getCachedAzkar(userId, personId, dateKey, period);
+  const cached = await getCachedAzkar(resolvedUserId, personId, dateKey, period);
   if (cached) {
     return { ok: true, state: cached, fromCache: true };
   }
 
   const fallback = buildOfflineAzkarState(period);
+  await cacheAzkar(resolvedUserId, personId, dateKey, period, fallback);
   return { ok: true, state: fallback, fromCache: true };
 }
 
@@ -63,14 +66,15 @@ export async function patchAzkar(
   dateKey: string,
   period: AzkarPeriod,
   personId: string,
-  userId: string,
+  userId?: string | null,
   body: Record<string, unknown>
 ): Promise<{ ok: boolean; state?: CachedAzkarState; offline?: boolean }> {
+  const resolvedUserId = resolveAzkarUserId(userId);
   const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
   const url = `/api/work-log/${dateKey}/azkar/${period}${qs}`;
 
   const cached =
-    (await getCachedAzkar(userId, personId, dateKey, period)) ??
+    (await getCachedAzkar(resolvedUserId, personId, dateKey, period)) ??
     buildOfflineAzkarState(period);
 
   let next: CachedAzkarState = { ...cached };
@@ -87,9 +91,9 @@ export async function patchAzkar(
     next.secondsSpent = Math.min(3600, next.secondsSpent + Math.floor(body.seconds));
   }
 
-  await cacheAzkar(userId, personId, dateKey, period, next);
+  await cacheAzkar(resolvedUserId, personId, dateKey, period, next);
 
-  if (isOnline()) {
+  if (isOnline() && canSyncAzkarProgress(resolvedUserId)) {
     try {
       const res = await fetch(url, {
         method: "PATCH",
@@ -108,21 +112,23 @@ export async function patchAzkar(
             read: (data as CachedAzkarState).read ?? next.read,
             secondsSpent: (data as CachedAzkarState).secondsSpent ?? next.secondsSpent,
           };
-          await cacheAzkar(userId, personId, dateKey, period, state);
+          await cacheAzkar(resolvedUserId, personId, dateKey, period, state);
           return { ok: true, state };
         }
         return { ok: true, state: next };
       }
     } catch {
-      // queue
+      // queue when logged in but request failed
     }
+
+    await enqueueSync({
+      url,
+      method: "PATCH",
+      body: JSON.stringify(body),
+      headers: { "Content-Type": "application/json" },
+    });
+    return { ok: true, state: next, offline: true };
   }
 
-  await enqueueSync({
-    url,
-    method: "PATCH",
-    body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
-  });
-  return { ok: true, state: next, offline: true };
+  return { ok: true, state: next, offline: !isOnline() };
 }

@@ -3,11 +3,37 @@ const withPWA = require("@ducanh2912/next-pwa").default({
   disable: process.env.NODE_ENV === "development",
   register: true,
   skipWaiting: true,
+  cacheOnFrontEndNav: true,
+  aggressiveFrontEndNavCaching: true,
   fallbacks: {
     document: "/offline",
   },
   workboxOptions: {
+    additionalManifestEntries: [
+      { url: "/morning-azkar", revision: "1" },
+      { url: "/evening-azkar", revision: "1" },
+    ],
     runtimeCaching: [
+      {
+        urlPattern: /morning-azkar/i,
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "page-morning-azkar",
+          networkTimeoutSeconds: 3,
+          expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 30 },
+        },
+        method: "GET",
+      },
+      {
+        urlPattern: /evening-azkar/i,
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "page-evening-azkar",
+          networkTimeoutSeconds: 3,
+          expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 30 },
+        },
+        method: "GET",
+      },
       {
         urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
         handler: "CacheFirst",
