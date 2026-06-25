@@ -159,7 +159,7 @@ export function DailyGoalProgress({
 
 export function TaskTemplatesPanel({
   templates,
-  todayTaskTexts,
+  isTemplateAdded,
   busy,
   onApply,
   onApplyAll,
@@ -167,14 +167,14 @@ export function TaskTemplatesPanel({
   className = "",
 }: {
   templates: WorkLogTaskTemplate[];
-  todayTaskTexts: Set<string>;
+  isTemplateAdded: (template: WorkLogTaskTemplate) => boolean;
   busy: boolean;
   onApply: (t: WorkLogTaskTemplate) => void;
   onApplyAll: () => void;
   onManage: () => void;
   className?: string;
 }) {
-  const pending = templates.filter((t) => !todayTaskTexts.has(t.text.trim().toLowerCase()));
+  const pending = templates.filter((t) => !isTemplateAdded(t));
   if (templates.length === 0) {
     return (
       <div className={`glass-card rounded-2xl p-4 mb-5 sm:p-5 sm:mb-6 ${className}`}>
@@ -228,7 +228,7 @@ export function TaskTemplatesPanel({
       </div>
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {templates.map((t) => {
-          const added = todayTaskTexts.has(t.text.trim().toLowerCase());
+          const added = isTemplateAdded(t);
           const style = PRIORITY_STYLES[t.priority];
           return (
             <li key={t.id} className="min-w-0">

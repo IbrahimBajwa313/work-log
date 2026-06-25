@@ -1,4 +1,11 @@
-import { randomUUID } from "crypto";
+import { randomUUID as nodeRandomUUID } from "crypto";
+
+function newId(): string {
+  if (typeof globalThis.crypto !== "undefined" && typeof globalThis.crypto.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  return nodeRandomUUID();
+}
 import type { AdminWorkLogDoc, AdminWorkLogTask, WorkLogPriority } from "@/lib/admin-work-log";
 import { WORK_LOG_PRIORITIES } from "@/lib/admin-work-log";
 
@@ -175,14 +182,25 @@ export function syncLegacyTaskFields(plans: WorkLogPlan[]): {
   };
 }
 
+export function planIdForTaskList(list: "work" | "deen" | "fitness"): string {
+  if (list === "deen") return DEFAULT_DEEN_PLAN_ID;
+  if (list === "fitness") return DEFAULT_FITNESS_PLAN_ID;
+  return DEFAULT_WORK_PLAN_ID;
+}
+
 export function findPlan(
   plans: WorkLogPlan[],
   opts: { planId?: string; list?: "work" | "deen" | "fitness" }
 ): WorkLogPlan | undefined {
   if (opts.planId) return plans.find((p) => p.id === opts.planId);
-  if (opts.list === "deen") return plans.find((p) => p.kind === "deen");
-  if (opts.list === "fitness") return plans.find((p) => p.kind === "fitness");
-  if (opts.list === "work") return plans.find((p) => p.kind === "work");
+  if (opts.list) {
+    const list = opts.list;
+    const byId = plans.find((p) => p.id === planIdForTaskList(list));
+    if (byId) return byId;
+    if (list === "deen") return plans.find((p) => p.kind === "deen");
+    if (list === "fitness") return plans.find((p) => p.kind === "fitness");
+    if (list === "work") return plans.find((p) => p.kind === "work");
+  }
   return undefined;
 }
 
@@ -206,7 +224,7 @@ export function newSubTask(
   now: Date
 ): AdminWorkLogTask {
   return {
-    id: randomUUID(),
+    id: newId(),
     text,
     done: false,
     priority,
@@ -223,7 +241,7 @@ export function newCustomPlan(
   now: Date
 ): WorkLogPlan {
   return {
-    id: randomUUID(),
+    id: newId(),
     kind: "custom",
     title,
     priority,

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Briefcase,
   CheckCircle2,
@@ -279,16 +280,16 @@ export function DailyPlansSection({
   personId = "primary",
   onPatch,
 }: DailyPlansSectionProps) {
+  const searchParams = useSearchParams();
   const [activeTabId, setActiveTabId] = useState<string>(DEFAULT_WORK_PLAN_ID);
 
   // Open a specific tab when returning from a deep link (e.g. /?tab=deen).
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const tab = new URLSearchParams(window.location.search).get("tab");
+    const tab = searchParams.get("tab");
     if (tab === "work") setActiveTabId(DEFAULT_WORK_PLAN_ID);
     else if (tab === "deen") setActiveTabId(DEFAULT_DEEN_PLAN_ID);
     else if (tab === "fitness") setActiveTabId(DEFAULT_FITNESS_PLAN_ID);
-  }, []);
+  }, [searchParams]);
   const [newPlanTitle, setNewPlanTitle] = useState("");
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [editPlanTitle, setEditPlanTitle] = useState("");

@@ -10,6 +10,7 @@ import {
   type UserWorkLogDoc,
 } from "@/lib/user-work-log";
 import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
+import { collapseWorkLogDayRows } from "@/lib/work-log-day-resolve";
 
 export const dynamic = "force-dynamic";
 
@@ -73,11 +74,15 @@ export async function GET(request: NextRequest) {
         .sort({ dateKey: -1 })
         .limit(400)
         .toArray();
-      const merged = new Map<string, UserWorkLogDoc>();
-      for (const row of [...rows, ...legacy]) merged.set(row.dateKey, row);
-      const days = [...merged.values()]
-        .sort((a, b) => (a.dateKey < b.dateKey ? 1 : -1))
-        .map(serializeUserWorkLogDay);
+      const byDate = new Map<string, UserWorkLogDoc[]>();
+      for (const row of [...rows, ...legacy]) {
+        const list = byDate.get(row.dateKey) ?? [];
+        list.push(row);
+        byDate.set(row.dateKey, list);
+      }
+      const days = [...byDate.entries()]
+        .sort(([a], [b]) => (a < b ? 1 : -1))
+        .map(([, docs]) => serializeUserWorkLogDay(collapseWorkLogDayRows(docs)));
       return NextResponse.json({ days, personId });
     }
 

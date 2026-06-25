@@ -62,6 +62,7 @@ import {
   patchWorkLogDay,
   patchWorkLogSettings,
 } from "@/lib/offline/work-log-api";
+import { applyClientWorkLogAction } from "@/lib/offline/client-mutations";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { AppSplash } from "@/components/app-splash";
 
@@ -793,7 +794,10 @@ export function WorkLogDashboard({
           }
           const day = result.data?.day as WorkLogDay | undefined;
           if (day) mergeDay(day);
-          return true;
+          if (result.error) {
+            setErrorMsg(result.error);
+          }
+          return Boolean(day);
         }
 
         const personQuery = settingsEnabled
@@ -983,34 +987,54 @@ export function WorkLogDashboard({
     estimateMinutes: number | null;
     list: "work" | "deen";
   }) => {
+    const planId = template.list === "deen" ? DEFAULT_DEEN_PLAN_ID : DEFAULT_WORK_PLAN_ID;
     const body: Record<string, unknown> = {
       action: "addTask",
+      planId,
       text: template.text,
       priority: template.priority,
-      list: template.list === "deen" ? "deen" : "work",
     };
     if (template.estimateMinutes != null && template.estimateMinutes > 0) {
       body.estimateMinutes = template.estimateMinutes;
     }
-    await patchDay(todayKey, body);
+
+    const currentDay = days.find((d) => d.dateKey === todayKey) ?? null;
+    const optimistic = applyClientWorkLogAction(
+      (currentDay ?? null) as import("@/lib/admin-work-log").SerializedWorkLogDay | null,
+      todayKey,
+      body,
+      days as import("@/lib/admin-work-log").SerializedWorkLogDay[]
+    );
+    mergeDay(optimistic as WorkLogDay);
+
+    const ok = await patchDay(todayKey, body);
+    if (!ok) {
+      void load();
+      return;
+    }
+    const tab = template.list === "deen" ? "deen" : "work";
+    router.replace(`/?tab=${tab}`, { scroll: false });
   };
+
+  const isTemplateAdded = useCallback(
+    (template: { text: string; list: "work" | "deen" }) => {
+      const planId = template.list === "deen" ? DEFAULT_DEEN_PLAN_ID : DEFAULT_WORK_PLAN_ID;
+      const plan = todayPlans.find((p) => p.id === planId);
+      if (!plan) return false;
+      const key = template.text.trim().toLowerCase();
+      return plan.subTasks.some((t) => t.text.trim().toLowerCase() === key);
+    },
+    [todayPlans]
+  );
 
   const applyAllTemplates = async () => {
     if (!settings?.taskTemplates.length) return;
     for (const t of settings.taskTemplates) {
-      if (!todayTaskTexts.has(t.text.trim().toLowerCase())) {
+      if (!isTemplateAdded(t)) {
         await applyTemplate(t);
       }
     }
   };
-
-  const todayTaskTexts = useMemo(() => {
-    const texts = new Set<string>();
-    for (const plan of todayPlans) {
-      for (const t of plan.subTasks) texts.add(t.text.trim().toLowerCase());
-    }
-    return texts;
-  }, [todayPlans]);
 
   const activePerson = settings?.people.find((p) => p.id === activePersonId);
 
@@ -1354,7 +1378,7 @@ export function WorkLogDashboard({
           <div data-tour="templates">
             <TaskTemplatesPanel
               templates={settings.taskTemplates}
-              todayTaskTexts={todayTaskTexts}
+              isTemplateAdded={isTemplateAdded}
               busy={busy}
               onApply={applyTemplate}
               onApplyAll={applyAllTemplates}

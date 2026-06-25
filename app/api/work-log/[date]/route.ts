@@ -8,6 +8,7 @@ import {
   type UserWorkLogDoc,
 } from "@/lib/user-work-log";
 import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
+import { collapseWorkLogDayRows, resolveUserDayForWrite } from "@/lib/work-log-day-resolve";
 import { isValidDateKey } from "@/lib/admin-work-log";
 import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
 import { getWorklogSessionFromRequest } from "@/lib/worklog-auth";
@@ -42,23 +43,38 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     const db = clientOrErr.db(defaultDbName);
     await ensureUserWorkLogIndexes(db);
 
-    let doc = await db
-      .collection<UserWorkLogDoc>(userWorkLogCollection)
-      .findOne({ userId: session.sub, personId, dateKey: params.date });
+    const coll = db.collection<UserWorkLogDoc>(userWorkLogCollection);
+    const candidates: UserWorkLogDoc[] = [];
+    const personDoc = await coll.findOne({ userId: session.sub, personId, dateKey: params.date });
+    if (personDoc) candidates.push(personDoc);
 
-    if (!doc && personId === PRIMARY_PERSON_ID) {
-      doc = await db
-        .collection<UserWorkLogDoc>(userWorkLogCollection)
-        .findOne({ userId: session.sub, personId: { $exists: false }, dateKey: params.date });
+    if (personId === PRIMARY_PERSON_ID) {
+      const legacyDoc = await coll.findOne({
+        userId: session.sub,
+        dateKey: params.date,
+        personId: { $exists: false },
+      });
+      if (legacyDoc && !candidates.some((c) => String((c as { _id?: unknown })._id) === String((legacyDoc as { _id?: unknown })._id))) {
+        candidates.push(legacyDoc);
+      }
+    }
+
+    let doc: UserWorkLogDoc | null = null;
+    if (candidates.length > 1 && personId === PRIMARY_PERSON_ID) {
+      doc = await resolveUserDayForWrite(coll, session.sub, params.date, personId);
+    } else if (candidates.length > 0) {
+      doc = collapseWorkLogDayRows(candidates);
     }
 
     if (doc) {
-      const coll = db.collection<UserWorkLogDoc>(userWorkLogCollection);
-      const dayFilter = {
-        userId: session.sub,
-        personId: doc.personId ?? personId,
-        dateKey: params.date,
-      };
+      const docId = (doc as { _id?: unknown })._id;
+      const dayFilter = docId
+        ? { _id: docId }
+        : {
+            userId: session.sub,
+            personId: doc.personId ?? personId,
+            dateKey: params.date,
+          };
       const ensured = await ensureAzkarOnDayDoc(coll, dayFilter, doc, new Date());
       if (ensured) {
         doc = ensured as typeof doc;

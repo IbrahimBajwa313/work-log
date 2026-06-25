@@ -14,6 +14,10 @@ import {
   serializeUserWorkLogDay,
   type UserWorkLogDoc,
 } from "@/lib/user-work-log";
+import {
+  dayDocFilter,
+  resolveUserDayForWrite,
+} from "@/lib/work-log-day-resolve";
 import { resolveAdminPersonId } from "@/lib/admin-work-log-settings";
 import {
   createDefaultPlans,
@@ -116,7 +120,7 @@ async function persistDayPlans<T extends AdminWorkLogDoc>(
   now: Date
 ): Promise<void> {
   const legacy = syncLegacyTaskFields(plans);
-  await coll.updateOne(dayFilter, {
+  const result = await coll.updateOne(dayFilter, {
     $set: {
       plans,
       tasks: legacy.tasks,
@@ -125,6 +129,9 @@ async function persistDayPlans<T extends AdminWorkLogDoc>(
       updatedAt: now,
     },
   } as UpdateFilter<T>);
+  if (result.matchedCount === 0) {
+    throw new Error("Failed to save day plans");
+  }
 }
 
 function applyPlanMutation(
@@ -354,33 +361,7 @@ async function getOrCreateUserDay(
   dateKey: string,
   personId: string
 ): Promise<UserWorkLogDoc> {
-  const now = new Date();
-  const result = await coll.findOneAndUpdate(
-    { userId, personId, dateKey },
-    {
-      $setOnInsert: {
-        userId,
-        personId,
-        dateKey,
-        totalMinutes: 0,
-        timerStartedAt: null,
-        tasks: [],
-        plans: createDefaultPlans(now),
-        deenTasks: [],
-        deenMinutes: 0,
-        deenTimerStartedAt: null,
-        fitnessTasks: [],
-        fitnessMinutes: 0,
-        fitnessTimerStartedAt: null,
-        notes: "",
-        createdAt: now,
-        updatedAt: now,
-      },
-    },
-    { upsert: true, returnDocument: "after" }
-  );
-  if (!result) throw new Error(`Failed to upsert work log day ${dateKey}`);
-  return result;
+  return resolveUserDayForWrite(coll, userId, dateKey, personId);
 }
 
 export async function applyWorkLogAction(
@@ -457,25 +438,42 @@ export async function applyUserWorkLogAction(
   const now = new Date();
   const personId = resolvePersonId(personIdInput);
   const scopeFilter = { userId, personId } as Filter<UserWorkLogDoc>;
-  const dayFilter = { userId, personId, dateKey } as Filter<UserWorkLogDoc>;
   let responseDateKey = dateKey;
+  let writeDoc: UserWorkLogDoc | null = null;
+
+  const ensureWriteDoc = async () => {
+    if (!writeDoc) {
+      writeDoc = await resolveUserDayForWrite(coll, userId, dateKey, personId);
+    }
+    return writeDoc;
+  };
 
   switch (body.action) {
     case "startTimer": {
       const fields = timerFields(body.list);
       await finalizeRunningTimers(coll, scopeFilter, fields);
-      await getOrCreateUserDay(coll, userId, dateKey, personId);
-      await coll.updateOne(dayFilter, { $set: { [fields.startedAt]: now, updatedAt: now } });
+      const doc = await ensureWriteDoc();
+      await coll.updateOne(dayDocFilter(doc), {
+        $set: { [fields.startedAt]: now, updatedAt: now },
+      });
       break;
     }
     case "stopTimer": {
       const fields = timerFields(body.list);
-      responseDateKey = await stopRunningTimer(coll, scopeFilter, dayFilter, dateKey, fields, now);
+      const doc = await ensureWriteDoc();
+      responseDateKey = await stopRunningTimer(
+        coll,
+        scopeFilter,
+        dayDocFilter(doc),
+        dateKey,
+        fields,
+        now
+      );
       break;
     }
     case "adjustMinutes": {
       const fields = timerFields(body.list);
-      const doc = await getOrCreateUserDay(coll, userId, dateKey, personId);
+      const doc = await ensureWriteDoc();
       const rawNext =
         body.mode === "set"
           ? Math.max(0, body.minutes)
@@ -485,7 +483,7 @@ export async function applyUserWorkLogAction(
       if (body.mode === "set") {
         $set[fields.startedAt] = null;
       }
-      await coll.updateOne(dayFilter, { $set });
+      await coll.updateOne(dayDocFilter(doc), { $set });
       break;
     }
     case "addTask":
@@ -496,22 +494,18 @@ export async function applyUserWorkLogAction(
     case "addPlan":
     case "updatePlan":
     case "deletePlan": {
-      const doc = await getOrCreateUserDay(coll, userId, dateKey, personId);
+      const doc = await ensureWriteDoc();
       const plans = applyPlanMutation(doc, body, now);
-      await persistDayPlans(coll, dayFilter, plans, now);
+      await persistDayPlans(coll, dayDocFilter(doc), plans, now);
       break;
     }
     case "setNotes": {
-      await getOrCreateUserDay(coll, userId, dateKey, personId);
-      await coll.updateOne(dayFilter, { $set: { notes: body.notes, updatedAt: now } });
+      const doc = await ensureWriteDoc();
+      await coll.updateOne(dayDocFilter(doc), { $set: { notes: body.notes, updatedAt: now } });
       break;
     }
   }
 
-  const updated = await coll.findOne({
-    userId,
-    personId,
-    dateKey: responseDateKey,
-  } as Filter<UserWorkLogDoc>);
-  return updated ? serializeUserWorkLogDay(updated) : emptyUserWorkLogDay(responseDateKey);
+  const finalDoc = await resolveUserDayForWrite(coll, userId, responseDateKey, personId);
+  return serializeUserWorkLogDay(finalDoc);
 }
