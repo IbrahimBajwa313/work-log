@@ -56,7 +56,7 @@ export function InstallPrompt() {
       <div className="glass-card rounded-2xl p-4 shadow-2xl">
         <div className="flex items-start gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/icon.png" alt="" className="h-12 w-12 rounded-xl" />
+          <img src="/pwa/icon-192.png" alt="" className="h-12 w-12 rounded-xl" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-bold text-white">Install Work Logging</p>
             <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">

@@ -1,3 +1,15 @@
+const fs = require("fs");
+const path = require("path");
+
+let pwaIconRevision = "1";
+try {
+  const metaPath = path.join(__dirname, "public", "pwa", "asset-meta.json");
+  const meta = JSON.parse(fs.readFileSync(metaPath, "utf8"));
+  if (meta.iconRevision) pwaIconRevision = meta.iconRevision;
+} catch {
+  // prebuild may not have run yet in dev
+}
+
 const withPWA = require("@ducanh2912/next-pwa").default({
   dest: "public",
   disable: process.env.NODE_ENV === "development",
@@ -12,6 +24,10 @@ const withPWA = require("@ducanh2912/next-pwa").default({
     additionalManifestEntries: [
       { url: "/morning-azkar", revision: "1" },
       { url: "/evening-azkar", revision: "1" },
+      { url: "/manifest.webmanifest", revision: pwaIconRevision },
+      { url: "/pwa/icon-192.png", revision: pwaIconRevision },
+      { url: "/pwa/icon-512.png", revision: pwaIconRevision },
+      { url: "/pwa/apple-touch-icon.png", revision: pwaIconRevision },
     ],
     runtimeCaching: [
       {
@@ -31,6 +47,26 @@ const withPWA = require("@ducanh2912/next-pwa").default({
           cacheName: "page-evening-azkar",
           networkTimeoutSeconds: 3,
           expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 30 },
+        },
+        method: "GET",
+      },
+      {
+        urlPattern: /\/pwa\/.*\.(?:png|webp)$/i,
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "pwa-icons",
+          networkTimeoutSeconds: 3,
+          expiration: { maxEntries: 8, maxAgeSeconds: 60 * 60 * 24 * 7 },
+        },
+        method: "GET",
+      },
+      {
+        urlPattern: /\/manifest\.webmanifest$/i,
+        handler: "NetworkFirst",
+        options: {
+          cacheName: "pwa-manifest",
+          networkTimeoutSeconds: 3,
+          expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 * 7 },
         },
         method: "GET",
       },

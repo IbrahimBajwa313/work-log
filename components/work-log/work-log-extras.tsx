@@ -210,7 +210,7 @@ export function TaskTemplatesPanel({
           {pending.length > 1 ? (
             <button
               type="button"
-              onClick={onApplyAll}
+              onClick={() => void onApplyAll()}
               disabled={busy || pending.length === 0}
               className="rounded-md border border-[var(--accent-cyan)]/40 px-3 py-1 text-xs font-semibold text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10 disabled:opacity-50"
             >
@@ -226,36 +226,36 @@ export function TaskTemplatesPanel({
           </button>
         </div>
       </div>
-      <ul className="-mx-1 flex gap-2 overflow-x-auto mobile-scroll-x px-1 pb-0.5 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {templates.map((t) => {
           const added = todayTaskTexts.has(t.text.trim().toLowerCase());
           const style = PRIORITY_STYLES[t.priority];
           return (
-            <li key={t.id}>
+            <li key={t.id} className="min-w-0">
               <button
                 type="button"
-                onClick={() => onApply(t)}
+                onClick={() => void onApply(t)}
                 disabled={busy || added}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors disabled:opacity-50 ${
+                className={`touch-target flex w-full min-w-0 items-center gap-1.5 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors disabled:opacity-50 sm:py-2 ${
                   added
                     ? "border-[var(--card-border)] bg-white/5 text-[var(--text-secondary)] line-through"
-                    : "border-[var(--card-border)] bg-white/5 text-white hover:border-[var(--accent-cyan)]/40"
+                    : "border-[var(--card-border)] bg-white/5 text-white hover:border-[var(--accent-cyan)]/40 active:scale-[0.99]"
                 }`}
-                title={added ? "Already added today" : "Add to today"}
+                title={added ? "Already added today" : `Add "${t.text}" to today`}
               >
                 {t.list === "deen" ? (
                   <Moon className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
                 ) : null}
-                <span className={`rounded-full border px-1.5 text-[10px] font-bold uppercase ${style.className}`}>
+                <span className={`shrink-0 rounded-full border px-1.5 text-[10px] font-bold uppercase ${style.className}`}>
                   {style.label}
                 </span>
                 {t.estimateMinutes ? (
-                  <span className="text-[11px] text-[var(--text-secondary)]">
+                  <span className="shrink-0 text-[11px] text-[var(--text-secondary)]">
                     {formatEstimate(t.estimateMinutes)}
                   </span>
                 ) : null}
-                {t.text}
-                {!added ? <Plus className="w-3.5 h-3.5 text-[var(--accent-cyan)]" /> : null}
+                <span className="min-w-0 flex-1 truncate">{t.text}</span>
+                {!added ? <Plus className="w-3.5 h-3.5 shrink-0 text-[var(--accent-cyan)]" /> : null}
               </button>
             </li>
           );

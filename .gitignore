@@ -10,3 +10,6 @@ public/sw.js
 public/workbox-*.js
 public/fallback-*.js
 public/swe-worker-*.js
+
+# Generated PWA icons (from app/icon.png via prebuild)
+public/pwa/

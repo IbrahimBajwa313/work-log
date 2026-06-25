@@ -983,13 +983,16 @@ export function WorkLogDashboard({
     estimateMinutes: number | null;
     list: "work" | "deen";
   }) => {
-    await patchDay(todayKey, {
+    const body: Record<string, unknown> = {
       action: "addTask",
       text: template.text,
       priority: template.priority,
-      estimateMinutes: template.estimateMinutes,
       list: template.list === "deen" ? "deen" : "work",
-    });
+    };
+    if (template.estimateMinutes != null && template.estimateMinutes > 0) {
+      body.estimateMinutes = template.estimateMinutes;
+    }
+    await patchDay(todayKey, body);
   };
 
   const applyAllTemplates = async () => {
@@ -1347,6 +1350,19 @@ export function WorkLogDashboard({
           />
         </motion.div>
 
+        {settingsEnabled && settings ? (
+          <div data-tour="templates">
+            <TaskTemplatesPanel
+              templates={settings.taskTemplates}
+              todayTaskTexts={todayTaskTexts}
+              busy={busy}
+              onApply={applyTemplate}
+              onApplyAll={applyAllTemplates}
+              onManage={() => setShowSettingsModal(true)}
+            />
+          </div>
+        ) : null}
+
         <motion.section
           data-tour="notes"
           initial={{ opacity: 0, y: 8 }}
@@ -1383,19 +1399,6 @@ export function WorkLogDashboard({
             </button>
           ) : null}
         </motion.section>
-
-        {settingsEnabled && settings ? (
-          <div data-tour="templates">
-            <TaskTemplatesPanel
-              templates={settings.taskTemplates}
-              todayTaskTexts={todayTaskTexts}
-              busy={busy}
-              onApply={applyTemplate}
-              onApplyAll={applyAllTemplates}
-              onManage={() => setShowSettingsModal(true)}
-            />
-          </div>
-        ) : null}
         </>
         ) : (
         <>
