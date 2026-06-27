@@ -18,7 +18,9 @@ export type SyncQueueEntry = {
 
 export type CachedAzkarState = {
   items: unknown[];
-  tickedIds: string[];
+  counts: Record<string, number>;
+  /** Legacy field kept for cache migration. */
+  tickedIds?: string[];
   complete: boolean;
   total: number;
   read: number;

@@ -3,12 +3,14 @@ import { syncLegacyTaskFields, type WorkLogPlan } from "@/lib/work-log-plans";
 import type { AdminWorkLogDoc } from "@/lib/admin-work-log";
 import {
   addAzkarSecondsToProgress,
+  applyAdhkarCountUpdate,
   AZKAR_EVENING_TASK_ID,
   AZKAR_MORNING_TASK_ID,
+  computeAzkarProgress,
   ensureAzkarSubTasksOnDoc,
+  getAdhkarCount,
+  getAzkarCounts,
   getAzkarSecondsSpent,
-  getAzkarTickedIds,
-  isAzkarComplete,
   newAzkarProgress,
   setAzkarTaskDone,
   type AzkarPeriod,
@@ -66,8 +68,8 @@ export async function ensureAzkarOnDayDoc<T extends AdminWorkLogDoc>(
 
 export function buildAzkarResponse(doc: AdminWorkLogDoc, period: AzkarPeriod) {
   const items = adhkarItemsForPeriod(period);
-  const tickedIds = getAzkarTickedIds(doc, period);
-  const complete = isAzkarComplete(tickedIds, items);
+  const counts = getAzkarCounts(doc, period, items);
+  const { total, read, complete } = computeAzkarProgress(counts, items);
   const plans = ensureAzkarSubTasksOnDoc(doc);
   const deen = plans.find((p) => p.kind === "deen");
   const taskId = taskIdForPeriod(period);
@@ -76,12 +78,12 @@ export function buildAzkarResponse(doc: AdminWorkLogDoc, period: AzkarPeriod) {
   return {
     period,
     items,
-    tickedIds,
+    counts,
     complete,
     taskDone,
     secondsSpent: getAzkarSecondsSpent(doc, period),
-    total: items.length,
-    read: tickedIds.length,
+    total,
+    read,
   };
 }
 
@@ -107,25 +109,25 @@ export async function addAzkarSeconds<T extends AdminWorkLogDoc>(
   return { secondsSpent: progress[period]?.secondsSpent ?? 0 };
 }
 
-export async function toggleAzkarAdhkar<T extends AdminWorkLogDoc>(
+export type AzkarCountMode = "increment" | "complete" | "reset" | "set";
+
+export async function updateAzkarAdhkarCount<T extends AdminWorkLogDoc>(
   coll: Collection<T>,
   dayFilter: Filter<T>,
   doc: T,
   period: AzkarPeriod,
   adhkarId: string,
-  now: Date
-): Promise<{ tickedIds: string[]; complete: boolean; taskDone: boolean }> {
+  mode: AzkarCountMode,
+  now: Date,
+  count?: number
+): Promise<{ counts: Record<string, number>; complete: boolean; taskDone: boolean }> {
   const items = adhkarItemsForPeriod(period);
-  if (!items.some((item) => item.id === adhkarId)) {
-    throw new Error("Adhkar not found");
-  }
+  const item = items.find((entry) => entry.id === adhkarId);
+  if (!item) throw new Error("Adhkar not found");
 
-  const current = new Set(getAzkarTickedIds(doc, period));
-  if (current.has(adhkarId)) current.delete(adhkarId);
-  else current.add(adhkarId);
-
-  const tickedIds = [...current];
-  const complete = isAzkarComplete(tickedIds, items);
+  const current = getAzkarCounts(doc, period, items);
+  const counts = applyAdhkarCountUpdate(current, item, mode, count);
+  const { complete } = computeAzkarProgress(counts, items);
   const taskId = taskIdForPeriod(period);
 
   let plans = ensureAzkarSubTasksOnDoc(doc);
@@ -133,12 +135,30 @@ export async function toggleAzkarAdhkar<T extends AdminWorkLogDoc>(
 
   await coll.updateOne(dayFilter, {
     $set: {
-      azkarProgress: newAzkarProgress(doc.azkarProgress, period, tickedIds),
+      azkarProgress: newAzkarProgress(doc.azkarProgress, period, counts),
       updatedAt: now,
     },
   } as UpdateFilter<T>);
 
   await persistDayPlansWithLegacy(coll, dayFilter, plans, now);
 
-  return { tickedIds, complete, taskDone: complete };
+  return { counts, complete, taskDone: complete };
+}
+
+/** @deprecated Use updateAzkarAdhkarCount — toggles between reset and complete. */
+export async function toggleAzkarAdhkar<T extends AdminWorkLogDoc>(
+  coll: Collection<T>,
+  dayFilter: Filter<T>,
+  doc: T,
+  period: AzkarPeriod,
+  adhkarId: string,
+  now: Date
+): Promise<{ counts: Record<string, number>; complete: boolean; taskDone: boolean }> {
+  const items = adhkarItemsForPeriod(period);
+  const item = items.find((entry) => entry.id === adhkarId);
+  if (!item) throw new Error("Adhkar not found");
+
+  const current = getAzkarCounts(doc, period, items);
+  const mode = getAdhkarCount(current, item) >= item.repeatCount ? "reset" : "complete";
+  return updateAzkarAdhkarCount(coll, dayFilter, doc, period, adhkarId, mode, now);
 }

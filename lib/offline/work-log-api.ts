@@ -28,9 +28,13 @@ export async function fetchWorkLogDays(
   apiBase: string,
   personId: string,
   userId: string,
-  authorizedInit: (init?: RequestInit) => RequestInit
+  authorizedInit: (init?: RequestInit) => RequestInit,
+  options?: { from?: string }
 ): Promise<FetchResult<{ days: SerializedWorkLogDay[] }>> {
-  const personQuery = `?personId=${encodeURIComponent(personId)}`;
+  const params = new URLSearchParams();
+  params.set("personId", personId);
+  if (options?.from) params.set("from", options.from);
+  const personQuery = `?${params.toString()}`;
 
   if (isOnline()) {
     try {

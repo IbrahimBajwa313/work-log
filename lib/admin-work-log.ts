@@ -52,8 +52,8 @@ export type AdminWorkLogDoc = {
   /** Non-null while the fitness timer is running. */
   fitnessTimerStartedAt?: Date | null;
   azkarProgress?: {
-    morning?: { tickedIds: string[]; secondsSpent?: number };
-    evening?: { tickedIds: string[]; secondsSpent?: number };
+    morning?: { counts?: Record<string, number>; tickedIds?: string[]; secondsSpent?: number };
+    evening?: { counts?: Record<string, number>; tickedIds?: string[]; secondsSpent?: number };
   };
   notes?: string;
   createdAt: Date;

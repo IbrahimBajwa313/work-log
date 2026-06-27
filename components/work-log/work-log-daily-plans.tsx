@@ -33,6 +33,7 @@ import {
   minutesSinceMidnight,
   validateTimeAdjustment,
 } from "@/lib/work-log-time-guards";
+import { workLogAreaColorsForKind } from "@/lib/work-log-area-colors";
 
 type WorkLogPriority = "high" | "medium" | "low";
 
@@ -350,16 +351,16 @@ export function DailyPlansSection({
   };
 
   const planAccent = (plan: SerializedWorkLogPlan) => {
-    if (plan.kind === "deen") {
-      return { border: "border-emerald-400/25", icon: Moon, color: "#34d399", btn: "bg-emerald-400 text-[#06120c]" };
-    }
-    if (plan.kind === "fitness") {
-      return { border: "border-orange-400/25", icon: Dumbbell, color: "#fb923c", btn: "bg-orange-400 text-[#140a06]" };
-    }
-    if (plan.kind === "work") {
-      return { border: "border-[var(--card-border)]", icon: Briefcase, color: "var(--accent-cyan)", btn: "bg-[var(--accent-cyan)] text-[#070d0d]" };
-    }
-    return { border: "border-violet-400/25", icon: ListIcon, color: "#a78bfa", btn: "bg-violet-400 text-[#0d0614]" };
+    const palette = workLogAreaColorsForKind(plan.kind);
+    const icon =
+      plan.kind === "deen"
+        ? Moon
+        : plan.kind === "fitness"
+          ? Dumbbell
+          : plan.kind === "work"
+            ? Briefcase
+            : ListIcon;
+    return { icon, ...palette };
   };
 
   const addCustomPlan = async (e: React.FormEvent) => {
@@ -467,6 +468,7 @@ export function DailyPlansSection({
         {orderedPlans.map((plan) => {
           const TabIcon = tabIcon(plan);
           const active = activePlan?.id === plan.id;
+          const tabPalette = workLogAreaColorsForKind(plan.kind);
           return (
           <button
             key={plan.id}
@@ -474,15 +476,21 @@ export function DailyPlansSection({
             data-tour={`plan-tab-${plan.kind === "custom" ? plan.id : plan.kind}`}
             onClick={() => setActiveTabId(plan.id)}
             className={`flex min-h-[3.25rem] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg py-2 px-1 text-center transition-all sm:min-w-[6rem] sm:px-2 sm:py-2.5 ${
-              active
-                ? "bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] text-[#070d0d] shadow-[0_0_18px_-4px_var(--accent-cyan-glow)]"
-                : "text-[var(--text-secondary)] hover:bg-white/5 hover:text-white"
+              active ? "shadow-[0_8px_24px_-12px_rgba(0,0,0,0.65)]" : "text-[var(--text-secondary)] hover:bg-white/5 hover:text-white"
             }`}
+            style={
+              active
+                ? { background: tabPalette.color, color: tabPalette.btnText }
+                : undefined
+            }
             title={tabHint(plan)}
           >
-            <TabIcon className={`h-5 w-5 sm:h-4 sm:w-4 ${active ? "text-[#070d0d]" : ""}`} />
+            <TabIcon className="h-5 w-5 sm:h-4 sm:w-4" style={active ? { color: tabPalette.btnText } : undefined} />
             <span className="text-xs font-semibold truncate w-full sm:text-sm">{tabLabel(plan)}</span>
-            <span className={`hidden text-[10px] truncate w-full sm:block ${active ? "text-[#070d0d]/70" : "text-white/35"}`}>
+            <span
+              className={`hidden text-[10px] truncate w-full sm:block ${active ? "opacity-70" : "text-white/35"}`}
+              style={active ? { color: tabPalette.btnText } : undefined}
+            >
               {tabHint(plan)}
             </span>
           </button>
@@ -528,7 +536,8 @@ export function DailyPlansSection({
         return (
           <article
             key={plan.id}
-            className={`relative overflow-hidden rounded-2xl border ${accent.border} bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-4 backdrop-blur shadow-[0_16px_44px_-26px_rgba(0,0,0,0.85)] transition-colors sm:p-6`}
+            className="relative overflow-hidden rounded-2xl border bg-gradient-to-b from-white/[0.05] to-white/[0.015] p-4 backdrop-blur shadow-[0_16px_44px_-26px_rgba(0,0,0,0.85)] transition-colors sm:p-6"
+            style={{ borderColor: accent.border }}
           >
             <span
               aria-hidden
@@ -617,15 +626,18 @@ export function DailyPlansSection({
                 <Link
                   href={`/morning-azkar?${azkarQuery}`}
                   className={`flex min-h-[3.5rem] items-center gap-3 rounded-xl border px-4 py-3.5 transition-colors active:scale-[0.98] ${
-                    morningAzkar?.done
-                      ? "border-emerald-400/40 bg-emerald-400/10"
-                      : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
+                    morningAzkar?.done ? "" : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
                   }`}
+                  style={
+                    morningAzkar?.done
+                      ? { borderColor: accent.border, background: accent.softBg }
+                      : undefined
+                  }
                 >
                   {morningAzkar?.done ? (
-                    <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+                    <CheckCircle2 className="w-5 h-5 shrink-0" style={{ color: accent.color }} />
                   ) : (
-                    <Sun className="w-5 h-5 shrink-0 text-amber-300" />
+                    <Sun className="w-5 h-5 shrink-0 text-amber-200/80" />
                   )}
                   <div className="min-w-0 text-left flex-1">
                     <p className="font-bold text-white">Morning Azkar</p>
@@ -641,15 +653,18 @@ export function DailyPlansSection({
                 <Link
                   href={`/evening-azkar?${azkarQuery}`}
                   className={`flex min-h-[3.5rem] items-center gap-3 rounded-xl border px-4 py-3.5 transition-colors active:scale-[0.98] ${
-                    eveningAzkar?.done
-                      ? "border-emerald-400/40 bg-emerald-400/10"
-                      : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
+                    eveningAzkar?.done ? "" : "border-[var(--card-border)] bg-white/[0.03] hover:bg-white/[0.06]"
                   }`}
+                  style={
+                    eveningAzkar?.done
+                      ? { borderColor: accent.border, background: accent.softBg }
+                      : undefined
+                  }
                 >
                   {eveningAzkar?.done ? (
-                    <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400" />
+                    <CheckCircle2 className="w-5 h-5 shrink-0" style={{ color: accent.color }} />
                   ) : (
-                    <Sparkles className="w-5 h-5 shrink-0 text-indigo-300" />
+                    <Sparkles className="w-5 h-5 shrink-0 text-slate-300/80" />
                   )}
                   <div className="min-w-0 text-left flex-1">
                     <p className="font-bold text-white">Evening Azkar</p>
@@ -717,7 +732,8 @@ export function DailyPlansSection({
                       type="button"
                       disabled={busy}
                       onClick={() => list && onPatch({ action: "startTimer", list })}
-                      className={`touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-base font-extrabold sm:w-auto sm:py-3 ${accent.btn}`}
+                      className="touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-base font-extrabold sm:w-auto sm:py-3"
+                      style={{ background: accent.color, color: accent.btnText }}
                     >
                       <Play className="w-5 h-5" /> Start timer
                     </button>
@@ -889,7 +905,8 @@ export function DailyPlansSection({
                   <button
                     type="submit"
                     disabled={busy || !(newSubTask[plan.id] || "").trim()}
-                    className={`touch-target ml-auto inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-sm font-extrabold disabled:opacity-50 sm:rounded-lg sm:py-2 ${accent.btn}`}
+                    className="touch-target ml-auto inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl px-4 py-3 text-sm font-extrabold disabled:opacity-50 sm:rounded-lg sm:py-2"
+                    style={{ background: accent.color, color: accent.btnText }}
                   >
                     <Plus className="w-4 h-4" />
                     Add

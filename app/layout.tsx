@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { SiteFooter } from "@/components/site-footer";
+import { SiteHeader } from "@/components/site-header";
 import { PwaShell } from "@/components/pwa/pwa-shell";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className={`${inter.variable} font-sans antialiased flex min-h-screen flex-col`}>
         <PwaShell />
+        <SiteHeader />
         <div className="flex-1">{children}</div>
         <SiteFooter />
       </body>

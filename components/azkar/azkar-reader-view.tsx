@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import {
   Type,
 } from "lucide-react";
 import type { AdhkarItem, AzkarPeriod } from "@/lib/azkar";
+import { computeAzkarProgress, getAdhkarCount } from "@/lib/azkar";
 import { AZKAR_PERIOD_CONFIG, getAdhkarForPeriod } from "@/lib/data/azkar-config";
 import { useWorkLogSessionGate } from "@/hooks/useWorkLogSessionGate";
 import { fetchAzkarState, patchAzkar } from "@/lib/offline/azkar-api";
@@ -26,7 +27,7 @@ import { AppSplash } from "@/components/app-splash";
 
 type AzkarApiState = {
   items: AdhkarItem[];
-  tickedIds: string[];
+  counts: Record<string, number>;
   complete: boolean;
   total: number;
   read: number;
@@ -52,12 +53,14 @@ function localDateKey(d = new Date()): string {
 
 function buildInitialAzkarState(period: AzkarPeriod): AzkarApiState {
   const items = getAdhkarForPeriod(period);
+  const counts: Record<string, number> = {};
+  const { total, read, complete } = computeAzkarProgress(counts, items);
   return {
     items,
-    tickedIds: [],
-    complete: false,
-    total: items.length,
-    read: 0,
+    counts,
+    complete,
+    total,
+    read,
     secondsSpent: 0,
   };
 }
@@ -302,43 +305,52 @@ function AzkarMobileFontSizeBar({
 function AdhkarCard({
   item,
   index,
-  ticked,
+  count,
   busy,
-  onToggle,
+  onIncrement,
+  onComplete,
+  onReset,
   config,
   arabicFontSizePx,
 }: {
   item: AdhkarItem;
   index: number;
-  ticked: boolean;
+  count: number;
   busy: boolean;
-  onToggle: () => void;
+  onIncrement: () => void;
+  onComplete: () => void;
+  onReset: () => void;
   config: (typeof AZKAR_PERIOD_CONFIG)[AzkarPeriod];
   arabicFontSizePx: number;
 }) {
   const [openTranslation, setOpenTranslation] = useState(false);
   const [openVirtue, setOpenVirtue] = useState(false);
   const hasVirtue = item.virtue.trim().length > 0;
+  const done = count >= item.repeatCount;
+  const showTasbih = item.repeatCount > 1 || !done;
 
-  const doneButtonClass = ticked
-    ? `flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg border px-4 py-2 text-sm font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${config.accentBorder} ${config.accentText} bg-white/5 hover:bg-white/10`
-    : config.period === "morning"
-      ? "flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-extrabold bg-gradient-to-r from-emerald-400 to-[var(--accent-cyan)] text-[#06120c] shadow-[0_0_14px_-4px_rgba(52,211,153,0.45)] hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-60"
-      : "flex w-full sm:w-auto items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-extrabold bg-gradient-to-r from-indigo-400 to-violet-400 text-white shadow-[0_0_14px_-4px_rgba(129,140,248,0.4)] hover:brightness-110 transition-all disabled:cursor-not-allowed disabled:opacity-60";
+  const tasbihButtonClass =
+    config.period === "morning"
+      ? "flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-[var(--accent-cyan)] text-xl font-extrabold text-[#06120c] shadow-[0_0_20px_-4px_rgba(52,211,153,0.5)] transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+      : "flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-xl font-extrabold text-white shadow-[0_0_20px_-4px_rgba(129,140,248,0.45)] transition-transform hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60";
+
+  const secondaryButtonClass = `rounded-lg border px-3 py-2 text-xs font-bold transition-all disabled:cursor-not-allowed disabled:opacity-60 ${config.accentBorder} ${config.accentText} bg-white/5 hover:bg-white/10`;
 
   return (
     <article
       className={`rounded-xl border p-5 transition-colors ${
-        ticked ? `${config.accentBorder} ${config.accentBg}` : "border-[var(--card-border)] bg-[var(--card-bg)]/80"
+        done ? `${config.accentBorder} ${config.accentBg}` : "border-[var(--card-border)] bg-[var(--card-bg)]/80"
       }`}
     >
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <span className="text-xs font-bold text-[var(--text-secondary)]">#{index + 1}</span>
           <h2 className="text-base font-bold text-white">{item.title}</h2>
-          <span className={`text-xs font-semibold rounded-full border px-2 py-0.5 ${config.accentText} border-current/30 bg-white/5`}>
-            {item.repeatCount}x
-          </span>
+          {item.repeatCount > 1 ? (
+            <span className={`text-xs font-semibold rounded-full border px-2 py-0.5 ${config.accentText} border-current/30 bg-white/5`}>
+              ×{item.repeatCount}
+            </span>
+          ) : null}
         </div>
         <p
           className="leading-loose text-right text-white whitespace-pre-line transition-[font-size] duration-200"
@@ -378,21 +390,57 @@ function AdhkarCard({
             </>
           ) : null}
 
-          <div className="flex w-full sm:justify-end">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onToggle}
-              className={doneButtonClass}
-              aria-label={ticked ? "Mark as unread" : "Mark as done"}
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              ) : ticked ? (
-                <CheckCircle2 className="h-4 w-4" aria-hidden />
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <p
+                className={`text-3xl font-extrabold tabular-nums leading-none ${
+                  done ? config.accentText : "text-white"
+                }`}
+                aria-live="polite"
+              >
+                {count}
+                <span className="text-xl font-bold text-[var(--text-secondary)]">/{item.repeatCount}</span>
+              </p>
+              {done ? (
+                <span className={`inline-flex items-center gap-1 text-xs font-bold ${config.accentText}`}>
+                  <CheckCircle2 className="h-4 w-4" />
+                  Done
+                </span>
               ) : null}
-              {ticked ? "Done" : "Mark done"}
-            </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+              {showTasbih ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={done}
+                    onClick={onIncrement}
+                    className={tasbihButtonClass}
+                    aria-label={`Count one repetition (${count} of ${item.repeatCount})`}
+                  >
+                    +1
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || done}
+                    onClick={onComplete}
+                    className={secondaryButtonClass}
+                  >
+                    Mark complete
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onReset}
+                  className={secondaryButtonClass}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -485,7 +533,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
       const secondsSpent = data.secondsSpent ?? 0;
       setState({
         items: data.items as AdhkarItem[],
-        tickedIds: data.tickedIds ?? [],
+        counts: data.counts ?? {},
         complete: Boolean(data.complete),
         total: data.total ?? 0,
         read: data.read ?? 0,
@@ -555,31 +603,86 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
     router.push("/?tab=deen");
   }, [flushPending, router]);
 
-  const tickedSet = useMemo(() => new Set(state?.tickedIds ?? []), [state?.tickedIds]);
+  const applyStateFromApi = useCallback((data: NonNullable<Awaited<ReturnType<typeof fetchAzkarState>>["state"]>) => {
+    setState({
+      items: data.items as AdhkarItem[],
+      counts: data.counts ?? {},
+      complete: Boolean(data.complete),
+      total: data.total ?? 0,
+      read: data.read ?? 0,
+      secondsSpent: data.secondsSpent ?? 0,
+    });
+  }, []);
 
-  const toggle = async (adhkarId: string) => {
-    setBusyId(adhkarId);
-    try {
-      const result = await patchAzkar(dateKey, period, personId, user?.id, {
-        action: "toggle",
+  const patchAdhkar = useCallback(
+    async (
+      adhkarId: string,
+      body: Record<string, unknown>,
+      optimistic?: (prev: AzkarApiState) => AzkarApiState,
+      showBusy = true
+    ) => {
+      if (optimistic) {
+        setState((prev) => (prev ? optimistic(prev) : prev));
+      }
+      if (showBusy) setBusyId(adhkarId);
+      try {
+        const result = await patchAzkar(dateKey, period, personId, user?.id, body);
+        if (!result.ok || !result.state) throw new Error("Failed to save progress");
+        applyStateFromApi(result.state);
+      } catch {
+        setError("Could not save progress. Try again.");
+        void load();
+      } finally {
+        if (showBusy) setBusyId(null);
+      }
+    },
+    [applyStateFromApi, dateKey, load, period, personId, user?.id]
+  );
+
+  const increment = useCallback(
+    (adhkarId: string) => {
+      void patchAdhkar(
         adhkarId,
+        { action: "increment", adhkarId },
+        (prev) => {
+          const item = prev.items.find((entry) => entry.id === adhkarId);
+          if (!item) return prev;
+          const current = getAdhkarCount(prev.counts, item);
+          if (current >= item.repeatCount) return prev;
+          const counts = { ...prev.counts, [adhkarId]: current + 1 };
+          const { total, read, complete } = computeAzkarProgress(counts, prev.items);
+          return { ...prev, counts, total, read, complete };
+        },
+        false
+      );
+    },
+    [patchAdhkar]
+  );
+
+  const complete = useCallback(
+    (adhkarId: string) => {
+      void patchAdhkar(adhkarId, { action: "complete", adhkarId }, (prev) => {
+        const item = prev.items.find((entry) => entry.id === adhkarId);
+        if (!item) return prev;
+        const counts = { ...prev.counts, [adhkarId]: item.repeatCount };
+        const { total, read, complete: done } = computeAzkarProgress(counts, prev.items);
+        return { ...prev, counts, total, read, complete: done };
       });
-      if (!result.ok || !result.state) throw new Error("Failed to save progress");
-      const data = result.state;
-      setState({
-        items: (data.items as AdhkarItem[]) ?? state?.items ?? [],
-        tickedIds: data.tickedIds ?? [],
-        complete: Boolean(data.complete),
-        total: data.total ?? 0,
-        read: data.read ?? 0,
-        secondsSpent: data.secondsSpent ?? state?.secondsSpent ?? 0,
+    },
+    [patchAdhkar]
+  );
+
+  const reset = useCallback(
+    (adhkarId: string) => {
+      void patchAdhkar(adhkarId, { action: "reset", adhkarId }, (prev) => {
+        const counts = { ...prev.counts };
+        delete counts[adhkarId];
+        const { total, read, complete: done } = computeAzkarProgress(counts, prev.items);
+        return { ...prev, counts, total, read, complete: done };
       });
-    } catch {
-      setError("Could not save progress. Try again.");
-    } finally {
-      setBusyId(null);
-    }
-  };
+    },
+    [patchAdhkar]
+  );
 
   const HeaderIcon = config.headerIcon === "sun" ? Sun : Moon;
 
@@ -644,7 +747,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
                 <span className="font-bold text-white tabular-nums">
                   {state.read}/{state.total}
                 </span>{" "}
-                read
+                recitations
               </p>
               <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--card-border)] bg-white/5 px-3 py-1 text-xs font-semibold text-[var(--text-secondary)]">
                 <Clock className="w-3.5 h-3.5" />
@@ -682,9 +785,11 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
                 key={item.id}
                 item={item}
                 index={index}
-                ticked={tickedSet.has(item.id)}
+                count={getAdhkarCount(state.counts, item)}
                 busy={busyId === item.id}
-                onToggle={() => void toggle(item.id)}
+                onIncrement={() => increment(item.id)}
+                onComplete={() => complete(item.id)}
+                onReset={() => reset(item.id)}
                 config={config}
                 arabicFontSizePx={fontSize.arabicFontSizePx}
               />

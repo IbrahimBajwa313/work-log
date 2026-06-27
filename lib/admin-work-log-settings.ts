@@ -2,6 +2,11 @@ import { randomUUID } from "crypto";
 import type { Db } from "mongodb";
 import { z } from "zod";
 import { WORK_LOG_PRIORITIES, type WorkLogPriority } from "@/lib/admin-work-log";
+import type { MonthlyAchievementTarget } from "@/lib/user-work-log-settings";
+import {
+  MONTHLY_MILESTONE_CATEGORIES,
+  normalizeMilestoneCategory,
+} from "@/lib/user-work-log-settings";
 
 export const adminWorkLogSettingsCollection =
   process.env.ADMIN_WORK_LOG_SETTINGS_COLLECTION || "adminWorkLogSettings";
@@ -39,6 +44,8 @@ type AdminWorkLogSettingsDoc = {
   people: WorkLogPerson[];
   taskTemplates: WorkLogTaskTemplate[];
   dailyGoalMinutes: number;
+  monthlyGoalMinutes: number;
+  monthlyAchievementTargets: MonthlyAchievementTarget[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -47,6 +54,8 @@ export type SerializedWorkLogSettings = {
   people: WorkLogPerson[];
   taskTemplates: SerializedWorkLogTaskTemplate[];
   dailyGoalMinutes: number;
+  monthlyGoalMinutes: number;
+  monthlyAchievementTargets: import("@/lib/user-work-log-settings").SerializedMonthlyAchievementTarget[];
 };
 
 export type SerializedWorkLogTaskTemplate = {
@@ -93,6 +102,18 @@ function serializeSettings(doc: AdminWorkLogSettingsDoc): SerializedWorkLogSetti
     people: doc.people ?? [],
     taskTemplates: (doc.taskTemplates ?? []).map(serializeTemplate),
     dailyGoalMinutes: Math.max(0, doc.dailyGoalMinutes ?? 0),
+    monthlyGoalMinutes: Math.max(0, doc.monthlyGoalMinutes ?? 0),
+    monthlyAchievementTargets: (doc.monthlyAchievementTargets ?? [])
+      .map((t) => ({
+        id: t.id,
+        monthKey: t.monthKey,
+        title: (t.title ?? "").trim().slice(0, 200),
+        targetCount: Math.max(0, Math.round(t.targetCount ?? 0)),
+        currentCount: Math.max(0, Math.round(t.currentCount ?? 0)),
+        unit: (t.unit ?? "").trim().slice(0, 40),
+        category: normalizeMilestoneCategory(t.category),
+      }))
+      .filter((t) => t.monthKey && t.title),
   };
 }
 
@@ -118,6 +139,8 @@ export async function getOrCreateAdminWorkLogSettings(
         ],
         taskTemplates: [],
         dailyGoalMinutes: 480,
+        monthlyGoalMinutes: 10560,
+        monthlyAchievementTargets: [],
         createdAt: now,
         updatedAt: now,
       },
@@ -130,6 +153,8 @@ export async function getOrCreateAdminWorkLogSettings(
       people: [{ id: PRIMARY_PERSON_ID, name: defaultName, color: PERSON_COLORS[0] }],
       taskTemplates: [],
       dailyGoalMinutes: 480,
+      monthlyGoalMinutes: 10560,
+      monthlyAchievementTargets: [],
     };
   }
 
@@ -172,6 +197,31 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("setDailyGoal"),
     minutes: z.coerce.number().int().min(0).max(24 * 60),
+  }),
+  z.object({
+    action: z.literal("setMonthlyGoal"),
+    minutes: z.coerce.number().int().min(0).max(744 * 60),
+  }),
+  z.object({
+    action: z.literal("addMonthlyAchievementTarget"),
+    monthKey: z.string().regex(/^\d{4}-\d{2}$/),
+    title: z.string().trim().min(1).max(200),
+    targetCount: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    unit: z.string().trim().max(40).optional(),
+    category: z.enum(MONTHLY_MILESTONE_CATEGORIES).optional(),
+  }),
+  z.object({
+    action: z.literal("updateMonthlyAchievementTarget"),
+    targetId: z.string().min(1),
+    title: z.string().trim().min(1).max(200).optional(),
+    targetCount: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    currentCount: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    unit: z.string().trim().max(40).optional(),
+    category: z.enum(MONTHLY_MILESTONE_CATEGORIES).optional(),
+  }),
+  z.object({
+    action: z.literal("deleteMonthlyAchievementTarget"),
+    targetId: z.string().min(1),
   }),
 ]);
 
@@ -264,6 +314,60 @@ export async function applyAdminWorkLogSettingsAction(
     }
     case "setDailyGoal": {
       await coll.updateOne({ scope }, { $set: { dailyGoalMinutes: body.minutes, updatedAt: now } });
+      break;
+    }
+    case "setMonthlyGoal": {
+      await coll.updateOne({ scope }, { $set: { monthlyGoalMinutes: body.minutes, updatedAt: now } });
+      break;
+    }
+    case "addMonthlyAchievementTarget": {
+      const target: MonthlyAchievementTarget = {
+        id: randomUUID(),
+        monthKey: body.monthKey,
+        title: body.title,
+        targetCount: body.targetCount ?? 0,
+        currentCount: 0,
+        unit: body.unit?.trim() ?? "",
+        category: normalizeMilestoneCategory(body.category),
+      };
+      await coll.updateOne(
+        { scope },
+        { $push: { monthlyAchievementTargets: target }, $set: { updatedAt: now } }
+      );
+      break;
+    }
+    case "updateMonthlyAchievementTarget": {
+      const doc = await coll.findOne({ scope });
+      const targets = doc?.monthlyAchievementTargets ?? [];
+      const idx = targets.findIndex((t) => t.id === body.targetId);
+      if (idx < 0) throw new Error("Target not found");
+      const current = targets[idx];
+      const updated: MonthlyAchievementTarget = {
+        ...current,
+        title: body.title ?? current.title,
+        targetCount: body.targetCount ?? current.targetCount,
+        currentCount: body.currentCount ?? current.currentCount,
+        unit: body.unit !== undefined ? body.unit.trim() : current.unit,
+        category:
+          body.category !== undefined
+            ? normalizeMilestoneCategory(body.category)
+            : normalizeMilestoneCategory(current.category),
+      };
+      await coll.updateOne(
+        { scope },
+        { $set: { [`monthlyAchievementTargets.${idx}`]: updated, updatedAt: now } }
+      );
+      break;
+    }
+    case "deleteMonthlyAchievementTarget": {
+      const result = await coll.updateOne(
+        { scope },
+        {
+          $pull: { monthlyAchievementTargets: { id: body.targetId } },
+          $set: { updatedAt: now },
+        }
+      );
+      if (result.modifiedCount === 0) throw new Error("Target not found");
       break;
     }
   }

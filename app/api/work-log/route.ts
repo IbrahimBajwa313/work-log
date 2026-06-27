@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 function defaultFromKey(): string {
   const d = new Date();
-  d.setDate(d.getDate() - 60);
+  d.setDate(d.getDate() - 53 * 7);
   return d.toISOString().slice(0, 10);
 }
 

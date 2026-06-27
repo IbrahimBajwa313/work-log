@@ -8,6 +8,7 @@ import {
   buildAzkarResponse,
   ensureAzkarOnDayDoc,
   toggleAzkarAdhkar,
+  updateAzkarAdhkarCount,
 } from "@/lib/azkar-service";
 import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
 import { getWorklogSessionFromRequest } from "@/lib/worklog-auth";
@@ -36,8 +37,24 @@ const patchSchema = z.discriminatedUnion("action", [
     adhkarId: z.string().min(1),
   }),
   z.object({
+    action: z.literal("increment"),
+    adhkarId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("complete"),
+    adhkarId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("reset"),
+    adhkarId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("setCount"),
+    adhkarId: z.string().min(1),
+    count: z.number().int().min(0).max(1000),
+  }),
+  z.object({
     action: z.literal("addTime"),
-    // Cap a single flush so a stale/background tab can't inflate totals.
     seconds: z.number().int().min(1).max(3600),
   }),
 ]);
@@ -78,6 +95,24 @@ async function getOrSeedDay(db: Db, userId: string, personId: string, dateKey: s
 
   if (!doc) return null;
   return ensureAzkarOnDayDoc(coll, dayFilter, doc, new Date());
+}
+
+function docWithPeriodProgress(
+  doc: UserWorkLogDoc,
+  period: AzkarPeriod,
+  counts: Record<string, number>,
+  secondsSpent?: number
+): UserWorkLogDoc {
+  return {
+    ...doc,
+    azkarProgress: {
+      ...doc.azkarProgress,
+      [period]: {
+        counts,
+        secondsSpent: secondsSpent ?? doc.azkarProgress?.[period]?.secondsSpent,
+      },
+    },
+  };
 }
 
 export async function GET(request: NextRequest, { params }: RouteContext) {
@@ -169,40 +204,74 @@ export async function PATCH(request: NextRequest, { params }: RouteContext) {
         body.seconds,
         now
       );
-      return NextResponse.json({
-        ...buildAzkarResponse(
-          {
-            ...doc,
-            azkarProgress: {
-              ...doc.azkarProgress,
-              [period]: {
-                tickedIds: doc.azkarProgress?.[period]?.tickedIds ?? [],
-                secondsSpent,
-              },
-            },
-          },
+      return NextResponse.json(
+        buildAzkarResponse(
+          docWithPeriodProgress(
+            doc,
+            period,
+            buildAzkarResponse(doc, period).counts,
+            secondsSpent
+          ),
           period
-        ),
-      });
+        )
+      );
     }
 
-    const result = await toggleAzkarAdhkar(coll, dayFilter, doc, period, body.adhkarId, now);
+    let result;
+    switch (body.action) {
+      case "toggle":
+        result = await toggleAzkarAdhkar(coll, dayFilter, doc, period, body.adhkarId, now);
+        break;
+      case "increment":
+        result = await updateAzkarAdhkarCount(
+          coll,
+          dayFilter,
+          doc,
+          period,
+          body.adhkarId,
+          "increment",
+          now
+        );
+        break;
+      case "complete":
+        result = await updateAzkarAdhkarCount(
+          coll,
+          dayFilter,
+          doc,
+          period,
+          body.adhkarId,
+          "complete",
+          now
+        );
+        break;
+      case "reset":
+        result = await updateAzkarAdhkarCount(
+          coll,
+          dayFilter,
+          doc,
+          period,
+          body.adhkarId,
+          "reset",
+          now
+        );
+        break;
+      case "setCount":
+        result = await updateAzkarAdhkarCount(
+          coll,
+          dayFilter,
+          doc,
+          period,
+          body.adhkarId,
+          "set",
+          now,
+          body.count
+        );
+        break;
+    }
 
     return NextResponse.json({
-      ...buildAzkarResponse(
-        {
-          ...doc,
-          azkarProgress: {
-            ...doc.azkarProgress,
-            [period]: {
-              tickedIds: result.tickedIds,
-              secondsSpent: doc.azkarProgress?.[period]?.secondsSpent,
-            },
-          },
-        },
-        period
-      ),
-      toggledId: body.adhkarId,
+      ...buildAzkarResponse(docWithPeriodProgress(doc, period, result.counts), period),
+      adhkarId: "adhkarId" in body ? body.adhkarId : undefined,
     });
   } catch (e) {
     if (e instanceof z.ZodError) {

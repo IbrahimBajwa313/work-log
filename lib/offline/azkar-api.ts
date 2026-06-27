@@ -1,4 +1,10 @@
-import type { AzkarPeriod } from "@/lib/azkar";
+import type { AdhkarItem, AzkarPeriod } from "@/lib/azkar";
+import {
+  applyAdhkarCountUpdate,
+  computeAzkarProgress,
+  getAdhkarCount,
+  resolveAzkarCounts,
+} from "@/lib/azkar";
 import { getAdhkarForPeriod } from "@/lib/data/azkar-config";
 import {
   cacheAzkar,
@@ -11,14 +17,90 @@ import { isOnline } from "@/lib/offline/work-log-api";
 
 function buildOfflineAzkarState(
   period: AzkarPeriod,
-  tickedIds: string[] = [],
+  counts: Record<string, number> = {},
   secondsSpent = 0
 ): CachedAzkarState {
   const items = getAdhkarForPeriod(period);
-  const read = tickedIds.length;
-  const total = items.length;
-  const complete = read >= total && total > 0;
-  return { items, tickedIds, complete, total, read, secondsSpent };
+  const { total, read, complete } = computeAzkarProgress(counts, items);
+  return { items, counts, complete, total, read, secondsSpent };
+}
+
+function applyLocalAzkarPatch(
+  cached: CachedAzkarState,
+  body: Record<string, unknown>
+): CachedAzkarState {
+  const items = cached.items as AdhkarItem[];
+  const counts = resolveAzkarCounts({ counts: cached.counts, tickedIds: cached.tickedIds }, items);
+  let nextCounts = counts;
+
+  if (body.action === "toggle" && typeof body.adhkarId === "string") {
+    const item = items.find((entry) => entry.id === body.adhkarId);
+    if (item) {
+      const mode = getAdhkarCount(counts, item) >= item.repeatCount ? "reset" : "complete";
+      nextCounts = applyAdhkarCountUpdate(counts, item, mode);
+    }
+  } else if (body.action === "increment" && typeof body.adhkarId === "string") {
+    const item = items.find((entry) => entry.id === body.adhkarId);
+    if (item) nextCounts = applyAdhkarCountUpdate(counts, item, "increment");
+  } else if (body.action === "complete" && typeof body.adhkarId === "string") {
+    const item = items.find((entry) => entry.id === body.adhkarId);
+    if (item) nextCounts = applyAdhkarCountUpdate(counts, item, "complete");
+  } else if (body.action === "reset" && typeof body.adhkarId === "string") {
+    const item = items.find((entry) => entry.id === body.adhkarId);
+    if (item) nextCounts = applyAdhkarCountUpdate(counts, item, "reset");
+  } else if (
+    body.action === "setCount" &&
+    typeof body.adhkarId === "string" &&
+    typeof body.count === "number"
+  ) {
+    const item = items.find((entry) => entry.id === body.adhkarId);
+    if (item) nextCounts = applyAdhkarCountUpdate(counts, item, "set", body.count);
+  } else if (body.action === "addTime" && typeof body.seconds === "number") {
+    const secondsSpent = Math.min(3600, cached.secondsSpent + Math.floor(body.seconds));
+    const { total, read, complete } = computeAzkarProgress(counts, items);
+    return { ...cached, counts, total, read, complete, secondsSpent };
+  }
+
+  const { total, read, complete } = computeAzkarProgress(nextCounts, items);
+  return { ...cached, counts: nextCounts, total, read, complete };
+}
+
+function normalizeAzkarState(data: Record<string, unknown>, period: AzkarPeriod): CachedAzkarState {
+  const items = (data.items as AdhkarItem[]) ?? getAdhkarForPeriod(period);
+  const counts = resolveAzkarCounts(
+    {
+      counts: data.counts as Record<string, number> | undefined,
+      tickedIds: data.tickedIds as string[] | undefined,
+    },
+    items
+  );
+  const { total, read, complete } = computeAzkarProgress(counts, items);
+  return {
+    items,
+    counts,
+    tickedIds: data.tickedIds as string[] | undefined,
+    complete,
+    total: typeof data.total === "number" ? data.total : total,
+    read: typeof data.read === "number" ? data.read : read,
+    secondsSpent: typeof data.secondsSpent === "number" ? data.secondsSpent : 0,
+  };
+}
+
+const patchQueues = new Map<string, Promise<{ ok: boolean; state?: CachedAzkarState; offline?: boolean }>>();
+
+function queueAzkarPatch(
+  key: string,
+  fn: () => Promise<{ ok: boolean; state?: CachedAzkarState; offline?: boolean }>
+) {
+  const prev = patchQueues.get(key) ?? Promise.resolve({ ok: true });
+  const next = prev.then(fn, fn);
+  patchQueues.set(
+    key,
+    next.finally(() => {
+      if (patchQueues.get(key) === next) patchQueues.delete(key);
+    })
+  );
+  return next;
 }
 
 export async function fetchAzkarState(
@@ -36,14 +118,7 @@ export async function fetchAzkarState(
       const res = await fetch(url, { credentials: "include" });
       const data = await res.json().catch(() => null);
       if (res.ok && data) {
-        const state: CachedAzkarState = {
-          items: (data as CachedAzkarState).items ?? getAdhkarForPeriod(period),
-          tickedIds: (data as CachedAzkarState).tickedIds ?? [],
-          complete: Boolean((data as CachedAzkarState).complete),
-          total: (data as CachedAzkarState).total ?? 0,
-          read: (data as CachedAzkarState).read ?? 0,
-          secondsSpent: (data as CachedAzkarState).secondsSpent ?? 0,
-        };
+        const state = normalizeAzkarState(data as Record<string, unknown>, period);
         await cacheAzkar(resolvedUserId, personId, dateKey, period, state);
         return { ok: true, state };
       }
@@ -54,7 +129,8 @@ export async function fetchAzkarState(
 
   const cached = await getCachedAzkar(resolvedUserId, personId, dateKey, period);
   if (cached) {
-    return { ok: true, state: cached, fromCache: true };
+    const state = normalizeAzkarState(cached as unknown as Record<string, unknown>, period);
+    return { ok: true, state, fromCache: true };
   }
 
   const fallback = buildOfflineAzkarState(period);
@@ -67,29 +143,31 @@ export async function patchAzkar(
   period: AzkarPeriod,
   personId: string,
   userId?: string | null,
-  body: Record<string, unknown>
+  body: Record<string, unknown> = {}
 ): Promise<{ ok: boolean; state?: CachedAzkarState; offline?: boolean }> {
   const resolvedUserId = resolveAzkarUserId(userId);
+  const queueKey = `${resolvedUserId}:${personId}:${dateKey}:${period}`;
+
+  return queueAzkarPatch(queueKey, () =>
+    patchAzkarInner(dateKey, period, personId, resolvedUserId, body)
+  );
+}
+
+async function patchAzkarInner(
+  dateKey: string,
+  period: AzkarPeriod,
+  personId: string,
+  resolvedUserId: string,
+  body: Record<string, unknown>
+): Promise<{ ok: boolean; state?: CachedAzkarState; offline?: boolean }> {
   const qs = personId ? `?personId=${encodeURIComponent(personId)}` : "";
   const url = `/api/work-log/${dateKey}/azkar/${period}${qs}`;
 
-  const cached =
+  const cachedRaw =
     (await getCachedAzkar(resolvedUserId, personId, dateKey, period)) ??
     buildOfflineAzkarState(period);
-
-  let next: CachedAzkarState = { ...cached };
-
-  if (body.action === "toggle" && typeof body.adhkarId === "string") {
-    const id = body.adhkarId;
-    const ticked = new Set(next.tickedIds);
-    if (ticked.has(id)) ticked.delete(id);
-    else ticked.add(id);
-    next.tickedIds = [...ticked];
-    next.read = next.tickedIds.length;
-    next.complete = next.read >= next.total && next.total > 0;
-  } else if (body.action === "addTime" && typeof body.seconds === "number") {
-    next.secondsSpent = Math.min(3600, next.secondsSpent + Math.floor(body.seconds));
-  }
+  const cached = normalizeAzkarState(cachedRaw as unknown as Record<string, unknown>, period);
+  const next = applyLocalAzkarPatch(cached, body);
 
   await cacheAzkar(resolvedUserId, personId, dateKey, period, next);
 
@@ -104,14 +182,7 @@ export async function patchAzkar(
       if (res.ok) {
         const data = await res.json().catch(() => null);
         if (data) {
-          const state: CachedAzkarState = {
-            items: (data as CachedAzkarState).items ?? next.items,
-            tickedIds: (data as CachedAzkarState).tickedIds ?? next.tickedIds,
-            complete: Boolean((data as CachedAzkarState).complete),
-            total: (data as CachedAzkarState).total ?? next.total,
-            read: (data as CachedAzkarState).read ?? next.read,
-            secondsSpent: (data as CachedAzkarState).secondsSpent ?? next.secondsSpent,
-          };
+          const state = normalizeAzkarState(data as Record<string, unknown>, period);
           await cacheAzkar(resolvedUserId, personId, dateKey, period, state);
           return { ok: true, state };
         }

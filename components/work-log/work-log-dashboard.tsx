@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -19,6 +20,7 @@ import {
   Loader2,
   LogOut,
   StickyNote,
+  Target,
   Trash2,
   TrendingUp,
   X,
@@ -41,6 +43,7 @@ import {
   type WorkLogSettings,
 } from "@/components/work-log/work-log-extras";
 import { DailyPlansSection } from "@/components/work-log/work-log-daily-plans";
+import { YearlyContributionChart } from "@/components/work-log/yearly-contribution-chart";
 import {
   createDefaultPlans,
   DEFAULT_DEEN_PLAN_ID,
@@ -50,6 +53,8 @@ import {
   type SerializedWorkLogPlan,
 } from "@/lib/work-log-plans";
 import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
+import { CONTRIBUTION_WEEKS } from "@/lib/yearly-contribution-chart";
+import { dateKeyDaysAgo } from "@/lib/date-keys";
 import {
   confirmTimeAdjustment,
   loggedTimeLooksImpossible,
@@ -65,6 +70,7 @@ import {
 import { applyClientWorkLogAction } from "@/lib/offline/client-mutations";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { AppSplash } from "@/components/app-splash";
+import { WORK_LOG_AREA_COLORS, workLogAreaColorForKind } from "@/lib/work-log-area-colors";
 
 export type WorkLogDashboardProps = {
   apiBase: string;
@@ -324,12 +330,27 @@ function quickStartStorageKey(userKey?: string) {
 
 function viewTabClass(active: boolean, variant: "inline" | "bottom") {
   if (variant === "bottom") {
-    return `relative flex flex-col items-center justify-center gap-0.5 rounded-xl py-2 min-h-[3.25rem] transition-colors ${
-      active ? "text-[var(--accent-cyan)]" : "text-[var(--text-secondary)]"
+    return `relative flex flex-col items-center justify-center gap-1 rounded-xl py-2.5 min-h-[3.5rem] transition-all ${
+      active
+        ? "text-[var(--accent-cyan)] bg-[var(--accent-cyan)]/[0.08]"
+        : "text-[var(--text-secondary)] hover:bg-white/[0.04] hover:text-white"
     }`;
   }
-  return `relative inline-flex flex-col items-center gap-0.5 rounded-xl px-4 py-2.5 min-h-[2.75rem] sm:flex-row sm:gap-2 sm:px-5 sm:py-2 ${
-    active ? "text-[#070d0d]" : "text-[var(--text-secondary)] hover:text-white"
+  return `relative flex flex-1 items-center gap-3 rounded-xl px-3.5 py-3 text-left transition-all sm:px-4 ${
+    active ? "text-white" : "text-[var(--text-secondary)] hover:bg-white/[0.04] hover:text-white"
+  }`;
+}
+
+function viewTabIconClass(active: boolean, variant: "inline" | "bottom") {
+  if (variant === "bottom") {
+    return active
+      ? "text-[var(--accent-cyan)]"
+      : "text-[var(--text-secondary)]";
+  }
+  return `flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+    active
+      ? "border-[var(--accent-cyan)]/45 bg-[var(--accent-cyan)]/15 text-[var(--accent-cyan)]"
+      : "border-[var(--card-border)] bg-white/[0.04] text-[var(--text-secondary)] group-hover:border-white/15 group-hover:text-white"
   }`;
 }
 
@@ -493,21 +514,21 @@ function HistoryDayTimeEditor({
     {
       list: "work",
       label: "Business",
-      color: "var(--accent-cyan)",
+      color: WORK_LOG_AREA_COLORS.work.color,
       secs: liveSeconds(day, nowMs),
       running: Boolean(day.timerStartedAt),
     },
     {
       list: "deen",
       label: "Deen",
-      color: "#34d399",
+      color: WORK_LOG_AREA_COLORS.deen.color,
       secs: deenLiveSeconds(day, nowMs),
       running: Boolean(day.deenTimerStartedAt),
     },
     {
       list: "fitness",
       label: "Fitness",
-      color: "#fb923c",
+      color: WORK_LOG_AREA_COLORS.fitness.color,
       secs: fitnessLiveSeconds(day, nowMs),
       running: Boolean(day.fitnessTimerStartedAt),
     },
@@ -666,13 +687,15 @@ export function WorkLogDashboard({
   const load = useCallback(async () => {
     setErrorMsg(null);
     setLoading(true);
+    const fromKey = dateKeyDaysAgo(CONTRIBUTION_WEEKS * 7);
     try {
       if (offlineUserId) {
         const result = await fetchWorkLogDays(
           apiBase,
           activePersonId,
           offlineUserId,
-          authorizedInit
+          authorizedInit,
+          { from: fromKey }
         );
         if (!result.ok) {
           setDays([]);
@@ -687,8 +710,8 @@ export function WorkLogDashboard({
       }
 
       const personQuery = settingsEnabled
-        ? `?personId=${encodeURIComponent(activePersonId)}`
-        : "";
+        ? `?personId=${encodeURIComponent(activePersonId)}&from=${encodeURIComponent(fromKey)}`
+        : `?from=${encodeURIComponent(fromKey)}`;
       const res = await fetch(`${apiBase}${personQuery}`, authorizedInit());
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -1056,8 +1079,10 @@ export function WorkLogDashboard({
 
     const monthPrefix = todayKey.slice(0, 7);
     let monthSecs = 0;
-    for (const d of days) {
-      if (d.dateKey.startsWith(monthPrefix)) monthSecs += totalLiveSeconds(d, nowMs);
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = `${monthPrefix}-${String(d).padStart(2, "0")}`;
+      monthSecs += totalLiveSeconds(byKey.get(key), nowMs);
     }
 
     let streak = 0;
@@ -1289,40 +1314,53 @@ export function WorkLogDashboard({
         ) : null}
 
         {/* View switch — desktop / tablet */}
-        <div className="mb-2 hidden justify-center sm:flex">
-          <div className="inline-flex w-full max-w-md gap-1 rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]/70 p-1.5 backdrop-blur">
+        <div className="mb-3 hidden justify-center sm:flex">
+          <div
+            role="tablist"
+            aria-label="Dashboard views"
+            className="inline-flex w-full max-w-lg gap-1.5 rounded-2xl border border-[var(--card-border)] bg-white/[0.03] p-1.5 backdrop-blur"
+          >
             {VIEW_TABS.map((tab) => {
               const active = activeView === tab.id;
               return (
                 <button
                   key={tab.id}
                   type="button"
+                  role="tab"
+                  aria-selected={active}
                   data-tour={`view-tab-${tab.id}`}
                   onClick={() => setActiveView(tab.id)}
-                  aria-pressed={active}
-                  className={`${viewTabClass(active, "inline")} flex-1`}
+                  className={`group ${viewTabClass(active, "inline")}`}
                 >
                   {active ? (
                     <motion.span
                       layoutId="viewTabIndicator"
                       transition={{ type: "spring", stiffness: 420, damping: 34 }}
-                      className="absolute inset-0 rounded-xl bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] shadow-[0_0_22px_-4px_var(--accent-cyan-glow)]"
+                      className="absolute inset-0 rounded-xl border border-[var(--accent-cyan)]/35 bg-gradient-to-br from-[var(--accent-cyan)]/16 to-[var(--accent-cyan-2)]/6 shadow-[0_0_28px_-10px_var(--accent-cyan-glow)]"
                     />
                   ) : null}
-                  <tab.Icon className="relative h-4 w-4" />
-                  <span className="relative text-sm font-semibold">{tab.label}</span>
-                  <span className={`relative hidden text-[10px] md:inline ${active ? "text-[#070d0d]/70" : "text-white/40"}`}>
-                    · {tab.hint}
+                  <span className={`relative ${viewTabIconClass(active, "inline")}`}>
+                    <tab.Icon className="h-4 w-4" strokeWidth={2.25} />
+                  </span>
+                  <span className="relative min-w-0 flex-1">
+                    <span className="block text-sm font-semibold leading-tight">{tab.label}</span>
+                    <span
+                      className={`mt-0.5 block text-xs leading-snug ${
+                        active ? "text-white/55" : "text-white/35 group-hover:text-white/50"
+                      }`}
+                    >
+                      {tab.hint}
+                    </span>
                   </span>
                 </button>
               );
             })}
           </div>
         </div>
-        <p className="mb-5 hidden text-center text-xs text-[var(--text-secondary)] sm:mb-6 sm:block">
+        <p className="mb-5 hidden text-center text-xs leading-relaxed text-[var(--text-secondary)] sm:mb-6 sm:block">
           {activeView === "track"
-            ? "Use this tab to record what you do today."
-            : "See how you've been doing over the past days and weeks."}
+            ? "Record timers, tasks, and notes for today."
+            : "Review charts, streaks, and your recent history."}
         </p>
 
         {activeView === "track" ? (
@@ -1439,7 +1477,14 @@ export function WorkLogDashboard({
               tint: stats.todayTimeSuspicious ? "#fbbf24" : "var(--accent-cyan)",
             },
             { label: "This week", value: formatDuration(stats.weekSecs), Icon: CalendarDays, tint: "#22d3ee" },
-            { label: "This month", value: formatDuration(stats.monthSecs), Icon: ListChecks, tint: "#a78bfa" },
+            {
+              label: "This month",
+              value: formatDuration(stats.monthSecs),
+              sub: "View monthly target →",
+              Icon: ListChecks,
+              tint: "#a78bfa",
+              href: "/monthly-targets",
+            },
             {
               label: "Streak",
               value: `${stats.streak} ${stats.streak === 1 ? "day" : "days"}`,
@@ -1454,42 +1499,90 @@ export function WorkLogDashboard({
               Icon: TrendingUp,
               tint: "#34d399",
             },
-          ].map((s, i) => (
-            <motion.div
-              key={s.label}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05, duration: 0.35 }}
-              whileHover={{ y: -4 }}
-              className={`group glass-card relative overflow-hidden rounded-2xl p-4 sm:p-5 ${
-                i === 4 ? "col-span-2 lg:col-span-1" : ""
-              }`}
-            >
-              <span
-                aria-hidden
-                className="absolute inset-x-0 top-0 h-px opacity-60"
-                style={{ background: `linear-gradient(90deg, transparent, ${s.tint}, transparent)` }}
-              />
-              <div className="flex items-center gap-2.5">
+          ].map((s, i) => {
+            const card = (
+              <>
                 <span
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-transform group-hover:scale-110"
-                  style={{
-                    color: s.tint,
-                    borderColor: `${s.tint}40`,
-                    background: `${s.tint}1a`,
-                  }}
-                >
-                  <s.Icon className="h-4 w-4" />
-                </span>
-                <p className="text-xs font-medium text-[var(--text-secondary)]">{s.label}</p>
-              </div>
-              <p className="mt-2 text-xl font-bold tabular-nums text-white sm:text-2xl">{s.value}</p>
-              {"sub" in s && s.sub ? (
-                <p className="mt-1 text-[10px] leading-snug text-[var(--text-secondary)] sm:text-[11px]">{s.sub}</p>
-              ) : null}
-            </motion.div>
-          ))}
+                  aria-hidden
+                  className="absolute inset-x-0 top-0 h-px opacity-60"
+                  style={{ background: `linear-gradient(90deg, transparent, ${s.tint}, transparent)` }}
+                />
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-transform group-hover:scale-110"
+                    style={{
+                      color: s.tint,
+                      borderColor: `${s.tint}40`,
+                      background: `${s.tint}1a`,
+                    }}
+                  >
+                    <s.Icon className="h-4 w-4" />
+                  </span>
+                  <p className="text-xs font-medium text-[var(--text-secondary)]">{s.label}</p>
+                </div>
+                <p className="mt-2 text-xl font-bold tabular-nums text-white sm:text-2xl">{s.value}</p>
+                {"sub" in s && s.sub ? (
+                  <p className="mt-1 text-[10px] leading-snug text-[var(--text-secondary)] sm:text-[11px]">{s.sub}</p>
+                ) : null}
+              </>
+            );
+
+            const className = `group glass-card relative overflow-hidden rounded-2xl p-4 sm:p-5 min-w-0 ${
+              i === 4 ? "col-span-2 lg:col-span-1" : ""
+            }${"href" in s && s.href ? " cursor-pointer transition-shadow hover:shadow-[0_0_30px_-8px_rgba(167,139,250,0.35)]" : ""}`;
+
+            return (
+              <motion.div
+                key={s.label}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05, duration: 0.35 }}
+                whileHover={{ y: -4 }}
+                className={className}
+              >
+                {"href" in s && s.href ? (
+                  <Link
+                    href={s.href}
+                    className="absolute inset-0 z-10 rounded-2xl"
+                    aria-label={`${s.label}: ${s.value}`}
+                  />
+                ) : null}
+                {card}
+              </motion.div>
+            );
+          })}
         </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+          className="mb-5 sm:mb-6"
+        >
+          <Link
+            href="/monthly-targets"
+            className="group flex items-center gap-4 rounded-2xl border border-violet-400/25 bg-gradient-to-r from-violet-500/10 via-[var(--accent-cyan)]/5 to-transparent p-4 transition-all hover:border-violet-400/45 hover:shadow-[0_0_40px_-12px_rgba(167,139,250,0.4)] sm:p-5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-violet-400/35 bg-violet-400/10 text-violet-300 transition-transform group-hover:scale-105">
+              <Target className="h-6 w-6" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-white sm:text-base">Monthly targets</p>
+              <p className="text-xs text-[var(--text-secondary)] sm:text-sm">
+                Set a goal, track your pace, and see your activity heatmap
+              </p>
+            </div>
+            <span className="hidden text-sm font-semibold text-[var(--accent-cyan)] sm:inline group-hover:underline">
+              Open →
+            </span>
+          </Link>
+        </motion.div>
+
+        <YearlyContributionChart
+          days={days as import("@/lib/admin-work-log").SerializedWorkLogDay[]}
+          nowMs={nowMs}
+          className="mb-5 sm:mb-6"
+        />
 
         {/* Chart */}
         <motion.section
@@ -1557,21 +1650,21 @@ export function WorkLogDashboard({
                 <Bar
                   dataKey="business"
                   stackId="time"
-                  fill="var(--accent-cyan)"
+                  fill={WORK_LOG_AREA_COLORS.work.color}
                   radius={[0, 0, 0, 0]}
                   name="business"
                 />
                 <Bar
                   dataKey="deen"
                   stackId="time"
-                  fill="#34d399"
+                  fill={WORK_LOG_AREA_COLORS.deen.color}
                   radius={[0, 0, 0, 0]}
                   name="deen"
                 />
                 <Bar
                   dataKey="fitness"
                   stackId="time"
-                  fill="#fb923c"
+                  fill={WORK_LOG_AREA_COLORS.fitness.color}
                   radius={[4, 4, 0, 0]}
                   name="fitness"
                 />
@@ -1682,13 +1775,8 @@ export function WorkLogDashboard({
                         {dayPlans.map((plan) => (
                           <div key={plan.id}>
                             <p
-                              className={`text-xs uppercase tracking-wider mb-1.5 font-semibold ${
-                                plan.kind === "deen"
-                                  ? "text-emerald-300"
-                                  : plan.kind === "fitness"
-                                    ? "text-orange-300"
-                                    : "text-[var(--accent-cyan)]"
-                              }`}
+                              className="text-xs uppercase tracking-wider mb-1.5 font-semibold"
+                              style={{ color: workLogAreaColorForKind(plan.kind) }}
                             >
                               {plan.title}
                             </p>
@@ -1700,13 +1788,8 @@ export function WorkLogDashboard({
                                   <li key={t.id} className="flex items-center gap-2 text-sm">
                                     {t.done ? (
                                       <CheckCircle2
-                                        className={`w-4 h-4 shrink-0 ${
-                                          plan.kind === "deen"
-                                            ? "text-emerald-300"
-                                            : plan.kind === "fitness"
-                                              ? "text-orange-300"
-                                              : "text-[var(--accent-cyan)]"
-                                        }`}
+                                        className="w-4 h-4 shrink-0"
+                                        style={{ color: workLogAreaColorForKind(plan.kind) }}
                                       />
                                     ) : (
                                       <Circle className="w-4 h-4 shrink-0 text-[var(--text-secondary)]" />
@@ -1759,23 +1842,23 @@ export function WorkLogDashboard({
         aria-label="Main sections"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--card-border)] bg-[var(--card-bg)]/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom,0px)] sm:hidden"
       >
-        <div className="grid grid-cols-2 gap-1 p-2">
+        <div role="tablist" className="grid grid-cols-2 gap-1 p-2">
           {VIEW_TABS.map((tab) => {
             const active = activeView === tab.id;
             return (
               <button
                 key={`mobile-${tab.id}`}
                 type="button"
+                role="tab"
+                aria-selected={active}
                 data-tour={tab.id === "track" ? "view-tab-track" : tab.id === "insights" ? "view-tab-insights" : undefined}
                 onClick={() => setActiveView(tab.id)}
-                aria-pressed={active}
-                aria-current={active ? "page" : undefined}
                 className={viewTabClass(active, "bottom")}
               >
                 {active ? (
-                  <span className="absolute inset-x-4 top-0 h-0.5 rounded-full bg-[var(--accent-cyan)]" />
+                  <span className="absolute inset-x-6 top-0 h-0.5 rounded-full bg-[var(--accent-cyan)] shadow-[0_0_8px_var(--accent-cyan-glow)]" />
                 ) : null}
-                <tab.Icon className="h-5 w-5" />
+                <tab.Icon className={`h-5 w-5 ${viewTabIconClass(active, "bottom")}`} strokeWidth={2.25} />
                 <span className="text-xs font-semibold">{tab.mobileLabel}</span>
               </button>
             );

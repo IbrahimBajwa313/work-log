@@ -24,6 +24,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
     additionalManifestEntries: [
       { url: "/morning-azkar", revision: "1" },
       { url: "/evening-azkar", revision: "1" },
+      { url: "/monthly-targets", revision: "1" },
       { url: "/manifest.webmanifest", revision: pwaIconRevision },
       { url: "/pwa/icon-192.png", revision: pwaIconRevision },
       { url: "/pwa/icon-512.png", revision: pwaIconRevision },

@@ -25,6 +25,7 @@ import {
   YAxis,
 } from "recharts";
 import { formatAdminMinutes, type AdminPlatformStats, type AdminUserRow } from "@/lib/admin-stats";
+import { WORK_LOG_AREA_COLORS } from "@/lib/work-log-area-colors";
 
 type AdminDashboardProps = {
   authorizedInit: (init?: RequestInit) => RequestInit;
@@ -221,8 +222,8 @@ export function AdminDashboard({ authorizedInit }: AdminDashboardProps) {
                   }}
                 />
                 <Legend />
-                <Bar dataKey="workHours" name="Work" stackId="a" fill="#22d3ee" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="deenHours" name="Deen" stackId="a" fill="#a78bfa" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="workHours" name="Work" stackId="a" fill={WORK_LOG_AREA_COLORS.work.color} radius={[0, 0, 0, 0]} />
+                <Bar dataKey="deenHours" name="Deen" stackId="a" fill={WORK_LOG_AREA_COLORS.deen.color} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

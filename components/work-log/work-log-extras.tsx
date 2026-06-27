@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Bookmark,
   Moon,
@@ -12,6 +12,7 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { WORK_LOG_AREA_COLORS } from "@/lib/work-log-area-colors";
 
 export type WorkLogPriority = "high" | "medium" | "low";
 
@@ -29,17 +30,116 @@ export type WorkLogTaskTemplate = {
   list: "work" | "deen";
 };
 
+import type { SerializedMonthlyAchievementTarget } from "@/lib/user-work-log-settings";
+
 export type WorkLogSettings = {
   people: WorkLogPerson[];
   taskTemplates: WorkLogTaskTemplate[];
   dailyGoalMinutes: number;
+  monthlyGoalMinutes: number;
+  monthlyAchievementTargets: SerializedMonthlyAchievementTarget[];
 };
 
 const PRIORITY_STYLES: Record<WorkLogPriority, { label: string; className: string }> = {
-  high: { label: "High", className: "border-red-400/40 bg-red-400/10 text-red-400" },
-  medium: { label: "Med", className: "border-amber-400/40 bg-amber-400/10 text-amber-400" },
-  low: { label: "Low", className: "border-sky-400/40 bg-sky-400/10 text-sky-400" },
+  high: { label: "High", className: "border-red-400/50 bg-red-400/15 text-red-300" },
+  medium: { label: "Med", className: "border-amber-400/50 bg-amber-400/15 text-amber-300" },
+  low: { label: "Low", className: "border-sky-400/50 bg-sky-400/15 text-sky-300" },
 };
+
+const SETTINGS_INPUT_CLASS =
+  "w-full rounded-xl border border-[var(--card-border)] bg-white/[0.04] px-3.5 py-2.5 text-sm text-white placeholder:text-[var(--text-secondary)]/70 transition-colors focus:border-[var(--accent-cyan)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/25";
+
+const SETTINGS_PRIMARY_BTN =
+  "inline-flex touch-target items-center justify-center gap-2 rounded-xl bg-[var(--accent-cyan)] px-4 py-2.5 text-sm font-bold text-[#070d0d] shadow-[0_0_20px_-6px_var(--accent-cyan-glow)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none";
+
+function SettingsSection({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="glass-card rounded-2xl p-4 sm:p-5">
+      <div className="mb-4 flex items-start gap-3">
+        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--accent-cyan)]/30 bg-[var(--accent-cyan)]/10">
+          {icon}
+        </span>
+        <div className="min-w-0 pt-0.5">
+          <h3 className="text-sm font-bold text-white">{title}</h3>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{description}</p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function DurationFields({
+  hours,
+  mins,
+  onHoursChange,
+  onMinsChange,
+  hoursMax = 24,
+  minsMax = 59,
+  compact = false,
+}: {
+  hours: string;
+  mins: string;
+  onHoursChange: (value: string) => void;
+  onMinsChange: (value: string) => void;
+  hoursMax?: number;
+  minsMax?: number;
+  compact?: boolean;
+}) {
+  const fieldClass = compact
+    ? "w-full rounded-lg border border-[var(--card-border)] bg-white/[0.04] px-2 py-1.5 text-center text-xs text-white focus:border-[var(--accent-cyan)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/25"
+    : SETTINGS_INPUT_CLASS + " text-center tabular-nums";
+
+  return (
+    <div
+      className={`flex items-end gap-2 rounded-xl border border-[var(--card-border)] bg-white/[0.03] ${
+        compact ? "p-1.5" : "p-2.5"
+      }`}
+    >
+      <div className="min-w-0 flex-1">
+        <label className="mb-1 block px-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+          Hours
+        </label>
+        <input
+          type="number"
+          min={0}
+          max={hoursMax}
+          inputMode="numeric"
+          value={hours}
+          onChange={(e) => onHoursChange(e.target.value)}
+          className={fieldClass}
+        />
+      </div>
+      <span className={`font-light text-[var(--text-secondary)] ${compact ? "pb-1.5 text-sm" : "pb-2.5 text-lg"}`}>
+        :
+      </span>
+      <div className="min-w-0 flex-1">
+        <label className="mb-1 block px-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+          Mins
+        </label>
+        <input
+          type="number"
+          min={0}
+          max={minsMax}
+          inputMode="numeric"
+          value={mins}
+          onChange={(e) => onMinsChange(e.target.value)}
+          className={fieldClass}
+        />
+      </div>
+    </div>
+  );
+}
 
 function formatEstimate(minutes: number): string {
   const h = Math.floor(minutes / 60);
@@ -244,7 +344,7 @@ export function TaskTemplatesPanel({
                 title={added ? "Already added today" : `Add "${t.text}" to today`}
               >
                 {t.list === "deen" ? (
-                  <Moon className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                  <Moon className="w-3.5 h-3.5 shrink-0" style={{ color: WORK_LOG_AREA_COLORS.deen.color }} />
                 ) : null}
                 <span className={`shrink-0 rounded-full border px-1.5 text-[10px] font-bold uppercase ${style.className}`}>
                   {style.label}
@@ -285,9 +385,6 @@ export function WorkLogSettingsModal({
   const [goalHours, setGoalHours] = useState(String(Math.floor(settings.dailyGoalMinutes / 60)));
   const [goalMins, setGoalMins] = useState(String(settings.dailyGoalMinutes % 60));
 
-  const inputClass =
-    "w-full px-3 py-2 bg-white/5 border border-[var(--card-border)] rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/35";
-
   const parseEst = (h: string, m: string) => {
     const hv = Number.parseInt(h || "0", 10);
     const mv = Number.parseInt(m || "0", 10);
@@ -296,221 +393,293 @@ export function WorkLogSettingsModal({
       : null;
   };
 
+  const goalPreviewMinutes =
+    (Number.parseInt(goalHours || "0", 10) || 0) * 60 + (Number.parseInt(goalMins || "0", 10) || 0);
+
+  const addPerson = async () => {
+    if (!newPersonName.trim()) return;
+    const ok = await onPatch({ action: "addPerson", name: newPersonName.trim() });
+    if (ok) setNewPersonName("");
+  };
+
+  const saveGoal = () => {
+    const h = Number.parseInt(goalHours || "0", 10);
+    const m = Number.parseInt(goalMins || "0", 10);
+    onPatch({ action: "setDailyGoal", minutes: h * 60 + m });
+  };
+
+  const saveTemplate = async () => {
+    if (!newTemplateText.trim()) return;
+    const ok = await onPatch({
+      action: "addTemplate",
+      text: newTemplateText.trim(),
+      priority: newTemplatePriority,
+      list: newTemplateList,
+      estimateMinutes: parseEst(newTemplateHours, newTemplateMins),
+    });
+    if (ok) {
+      setNewTemplateText("");
+      setNewTemplateHours("");
+      setNewTemplateMins("");
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-[#0b1414] border border-[var(--card-border)] rounded-xl p-6 shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-white">Work Logging settings</h2>
-          <button type="button" onClick={onClose} className="text-[var(--text-secondary)] hover:text-white">
-            <X className="w-5 h-5" />
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 backdrop-blur-sm sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="work-log-settings-title"
+    >
+      <div className="glass-card flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-[var(--card-border)] shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--card-border)]/80 px-5 pb-4 pt-5 sm:px-6 sm:pt-6">
+          <div>
+            <h2 id="work-log-settings-title" className="text-lg font-bold text-white sm:text-xl">
+              Work Logging settings
+            </h2>
+            <p className="mt-1 text-xs text-[var(--text-secondary)]">
+              People, goals, and reusable daily tasks
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close settings"
+            className="touch-target inline-flex items-center justify-center rounded-xl border border-transparent text-[var(--text-secondary)] transition-colors hover:border-[var(--card-border)] hover:bg-white/5 hover:text-white"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <section className="mb-6">
-          <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-            <Users className="w-4 h-4 text-[var(--accent-cyan)]" />
-            People you track
-          </h3>
-          <p className="text-xs text-[var(--text-secondary)] mb-3">
-            Add family, teammates, or anyone else — each person has their own log and stats.
-          </p>
-          <ul className="space-y-2 mb-3">
-            {settings.people.map((p) => (
-              <li
-                key={p.id}
-                className="flex items-center gap-2 rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-2"
-              >
-                <span className="w-3 h-3 rounded-full shrink-0" style={{ background: p.color }} />
-                <span className="flex-1 text-sm text-white">{p.name}</span>
-                {p.id !== "primary" ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => onPatch({ action: "deletePerson", personId: p.id })}
-                    className="text-red-400/70 hover:text-red-400 disabled:opacity-50"
+        <div className="space-y-4 overflow-y-auto px-4 py-4 safe-bottom sm:space-y-5 sm:px-5 sm:py-5">
+          <SettingsSection
+            icon={<Users className="h-4 w-4 text-[var(--accent-cyan)]" />}
+            title="People you track"
+            description="Add family, teammates, or anyone else — each person has their own log and stats."
+          >
+            <ul className="mb-4 space-y-2">
+              {settings.people.map((p) => (
+                <li
+                  key={p.id}
+                  className="group flex items-center gap-3 rounded-xl border border-[var(--card-border)] bg-white/[0.03] px-3 py-2.5 transition-colors hover:border-[var(--accent-cyan)]/25"
+                >
+                  <span
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10"
+                    style={{ background: `${p.color}18` }}
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                ) : (
-                  <span className="text-[10px] uppercase text-[var(--text-secondary)]">You</span>
-                )}
-              </li>
-            ))}
-          </ul>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newPersonName}
-              onChange={(e) => setNewPersonName(e.target.value)}
-              placeholder="New person name"
-              maxLength={60}
-              className={inputClass}
-            />
-            <button
-              type="button"
-              disabled={busy || !newPersonName.trim()}
-              onClick={async () => {
-                const ok = await onPatch({ action: "addPerson", name: newPersonName.trim() });
-                if (ok) setNewPersonName("");
-              }}
-              className="shrink-0 inline-flex items-center gap-1 rounded-md bg-[var(--accent-cyan)] px-3 py-2 text-sm font-bold text-[#070d0d] disabled:opacity-50"
-            >
-              <UserPlus className="w-4 h-4" />
-              Add
-            </button>
-          </div>
-        </section>
-
-        <section className="mb-6">
-          <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-            <Target className="w-4 h-4 text-[var(--accent-cyan)]" />
-            Daily combined goal
-          </h3>
-          <p className="text-xs text-[var(--text-secondary)] mb-3">
-            Work, Deen, and fitness time counted together toward this target.
-          </p>
-          <div className="flex items-end gap-2">
-            <div className="w-16">
-              <label className="text-xs text-[var(--text-secondary)]">Hours</label>
-              <input
-                type="number"
-                min={0}
-                max={24}
-                value={goalHours}
-                onChange={(e) => setGoalHours(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <div className="w-16">
-              <label className="text-xs text-[var(--text-secondary)]">Mins</label>
-              <input
-                type="number"
-                min={0}
-                max={59}
-                value={goalMins}
-                onChange={(e) => setGoalMins(e.target.value)}
-                className={inputClass}
-              />
-            </div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                const h = Number.parseInt(goalHours || "0", 10);
-                const m = Number.parseInt(goalMins || "0", 10);
-                onPatch({ action: "setDailyGoal", minutes: h * 60 + m });
-              }}
-              className="rounded-md border border-[var(--accent-cyan)]/40 px-4 py-2 text-sm font-semibold text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/10 disabled:opacity-50"
-            >
-              Save goal
-            </button>
-          </div>
-        </section>
-
-        <section>
-          <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-            <Bookmark className="w-4 h-4 text-[var(--accent-cyan)]" />
-            Saved daily tasks
-          </h3>
-          <p className="text-xs text-[var(--text-secondary)] mb-3">
-            Preset tasks with priority and time — add to any day without retyping.
-          </p>
-          <ul className="space-y-2 mb-3 max-h-40 overflow-y-auto">
-            {settings.taskTemplates.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center gap-2 rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-2 text-sm"
-              >
-                {t.list === "deen" ? <Moon className="w-3.5 h-3.5 text-emerald-300" /> : null}
-                <span className="flex-1 text-white">{t.text}</span>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onPatch({ action: "deleteTemplate", templateId: t.id })}
-                  className="text-red-400/70 hover:text-red-400 disabled:opacity-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="space-y-2">
-            <input
-              type="text"
-              value={newTemplateText}
-              onChange={(e) => setNewTemplateText(e.target.value)}
-              placeholder="Task name, e.g. Morning standup"
-              maxLength={500}
-              className={inputClass}
-            />
-            <div className="flex flex-wrap gap-2 items-center">
-              {(Object.keys(PRIORITY_STYLES) as WorkLogPriority[]).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setNewTemplatePriority(p)}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${
-                    PRIORITY_STYLES[p].className
-                  } ${newTemplatePriority === p ? "" : "opacity-40"}`}
-                >
-                  {PRIORITY_STYLES[p].label}
-                </button>
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: p.color }} />
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">{p.name}</span>
+                  {p.id !== "primary" ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      aria-label={`Remove ${p.name}`}
+                      onClick={() => onPatch({ action: "deletePerson", personId: p.id })}
+                      className="touch-target inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-red-400/70 transition-colors hover:bg-red-400/10 hover:text-red-300 disabled:opacity-45"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : (
+                    <span className="shrink-0 rounded-full border border-[var(--accent-cyan)]/30 bg-[var(--accent-cyan)]/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--accent-cyan)]">
+                      You
+                    </span>
+                  )}
+                </li>
               ))}
+            </ul>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                value={newPersonName}
+                onChange={(e) => setNewPersonName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void addPerson();
+                }}
+                placeholder="New person name"
+                maxLength={60}
+                className={SETTINGS_INPUT_CLASS}
+              />
               <button
                 type="button"
-                onClick={() => setNewTemplateList(newTemplateList === "work" ? "deen" : "work")}
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase ${
-                  newTemplateList === "deen"
-                    ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-300"
-                    : "border-[var(--card-border)] bg-white/5 text-[var(--text-secondary)]"
-                }`}
+                disabled={busy || !newPersonName.trim()}
+                onClick={() => void addPerson()}
+                className={`${SETTINGS_PRIMARY_BTN} w-full sm:w-auto sm:shrink-0`}
               >
-                {newTemplateList === "deen" ? "Deen" : "Business"}
+                <UserPlus className="h-4 w-4" />
+                Add
               </button>
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={newTemplateHours}
-                onChange={(e) => setNewTemplateHours(e.target.value)}
-                placeholder="0"
-                className="w-12 rounded border border-[var(--card-border)] bg-white/5 px-2 py-1 text-xs text-white"
-              />
-              <span className="text-xs text-[var(--text-secondary)]">h</span>
-              <input
-                type="number"
-                min={0}
-                max={59}
-                value={newTemplateMins}
-                onChange={(e) => setNewTemplateMins(e.target.value)}
-                placeholder="0"
-                className="w-12 rounded border border-[var(--card-border)] bg-white/5 px-2 py-1 text-xs text-white"
-              />
-              <span className="text-xs text-[var(--text-secondary)]">m</span>
             </div>
-            <button
-              type="button"
-              disabled={busy || !newTemplateText.trim()}
-              onClick={async () => {
-                const ok = await onPatch({
-                  action: "addTemplate",
-                  text: newTemplateText.trim(),
-                  priority: newTemplatePriority,
-                  list: newTemplateList,
-                  estimateMinutes: parseEst(newTemplateHours, newTemplateMins),
-                });
-                if (ok) {
-                  setNewTemplateText("");
-                  setNewTemplateHours("");
-                  setNewTemplateMins("");
-                }
-              }}
-              className="w-full rounded-md bg-[var(--accent-cyan)] py-2 text-sm font-bold text-[#070d0d] disabled:opacity-50"
-            >
-              Save task template
-            </button>
-          </div>
-        </section>
+          </SettingsSection>
+
+          <SettingsSection
+            icon={<Target className="h-4 w-4 text-[var(--accent-cyan)]" />}
+            title="Daily combined goal"
+            description="Work, Deen, and fitness time counted together toward this target."
+          >
+            <div className="mb-3 flex items-center justify-between rounded-xl border border-[var(--card-border)] bg-white/[0.03] px-3 py-2.5">
+              <span className="text-xs text-[var(--text-secondary)]">Target</span>
+              <span className="text-sm font-bold tabular-nums text-white">
+                {goalPreviewMinutes > 0 ? formatEstimate(goalPreviewMinutes) : "Not set"}
+              </span>
+            </div>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="min-w-0 flex-1">
+                <DurationFields
+                  hours={goalHours}
+                  mins={goalMins}
+                  onHoursChange={setGoalHours}
+                  onMinsChange={setGoalMins}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={saveGoal}
+                className={`${SETTINGS_PRIMARY_BTN} w-full sm:w-auto sm:shrink-0`}
+              >
+                Save goal
+              </button>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection
+            icon={<Bookmark className="h-4 w-4 text-[var(--accent-cyan)]" />}
+            title="Saved daily tasks"
+            description="Preset tasks with priority and time — add to any day without retyping."
+          >
+            {settings.taskTemplates.length === 0 ? (
+              <p className="mb-4 rounded-xl border border-dashed border-[var(--card-border)] bg-white/[0.02] px-4 py-8 text-center text-sm leading-relaxed text-[var(--text-secondary)]">
+                No saved tasks yet. Create your first template below.
+              </p>
+            ) : (
+              <ul className="mb-4 max-h-48 space-y-2 overflow-y-auto pr-1">
+                {settings.taskTemplates.map((t) => {
+                  const style = PRIORITY_STYLES[t.priority];
+                  return (
+                    <li
+                      key={t.id}
+                      className="flex items-center gap-2 rounded-xl border border-[var(--card-border)] bg-white/[0.03] px-3 py-2.5 text-sm transition-colors hover:border-[var(--accent-cyan)]/20"
+                    >
+                      {t.list === "deen" ? (
+                        <Moon
+                          className="h-3.5 w-3.5 shrink-0"
+                          style={{ color: WORK_LOG_AREA_COLORS.deen.color }}
+                        />
+                      ) : null}
+                      <span
+                        className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase ${style.className}`}
+                      >
+                        {style.label}
+                      </span>
+                      {t.estimateMinutes ? (
+                        <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-secondary)]">
+                          {formatEstimate(t.estimateMinutes)}
+                        </span>
+                      ) : null}
+                      <span className="min-w-0 flex-1 truncate text-white">{t.text}</span>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        aria-label={`Delete ${t.text}`}
+                        onClick={() => onPatch({ action: "deleteTemplate", templateId: t.id })}
+                        className="touch-target inline-flex shrink-0 items-center justify-center rounded-lg p-2 text-red-400/70 transition-colors hover:bg-red-400/10 hover:text-red-300 disabled:opacity-45"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+
+            <div className="space-y-3 rounded-xl border border-[var(--card-border)] bg-white/[0.02] p-3 sm:p-4">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                New template
+              </p>
+              <input
+                type="text"
+                value={newTemplateText}
+                onChange={(e) => setNewTemplateText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void saveTemplate();
+                }}
+                placeholder="Task name, e.g. Morning standup"
+                maxLength={500}
+                className={SETTINGS_INPUT_CLASS}
+              />
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                  Priority
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {(Object.keys(PRIORITY_STYLES) as WorkLogPriority[]).map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setNewTemplatePriority(p)}
+                      aria-pressed={newTemplatePriority === p}
+                      className={`touch-target rounded-full border px-3 py-1 text-[10px] font-bold uppercase transition-all ${
+                        PRIORITY_STYLES[p].className
+                      } ${
+                        newTemplatePriority === p
+                          ? "ring-2 ring-white/25 ring-offset-1 ring-offset-[#0d1414]"
+                          : "opacity-45 hover:opacity-80"
+                      }`}
+                    >
+                      {PRIORITY_STYLES[p].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="space-y-2 sm:flex-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Category
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setNewTemplateList(newTemplateList === "work" ? "deen" : "work")}
+                    className={`touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold uppercase transition-all sm:w-auto ${
+                      newTemplateList === "deen"
+                        ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-300 ring-2 ring-emerald-400/20"
+                        : "border-[var(--card-border)] bg-white/[0.04] text-[var(--text-secondary)] hover:text-white"
+                    }`}
+                  >
+                    {newTemplateList === "deen" ? (
+                      <Moon className="h-3.5 w-3.5" style={{ color: WORK_LOG_AREA_COLORS.deen.color }} />
+                    ) : null}
+                    {newTemplateList === "deen" ? "Deen" : "Business"}
+                  </button>
+                </div>
+                <div className="space-y-2 sm:flex-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                    Estimated time
+                  </p>
+                  <DurationFields
+                    compact
+                    hours={newTemplateHours}
+                    mins={newTemplateMins}
+                    onHoursChange={setNewTemplateHours}
+                    onMinsChange={setNewTemplateMins}
+                    hoursMax={23}
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                disabled={busy || !newTemplateText.trim()}
+                onClick={() => void saveTemplate()}
+                className={`${SETTINGS_PRIMARY_BTN} w-full`}
+              >
+                Save task template
+              </button>
+            </div>
+          </SettingsSection>
+        </div>
       </div>
     </div>
   );

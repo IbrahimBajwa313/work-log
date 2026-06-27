@@ -16,6 +16,9 @@
   --text-secondary: #b0b8b8;
   --card-bg: #0d0d0d;
   --card-border: #1a4d4d;
+  --area-work: #7289ff;
+  --area-deen: #3dd6b0;
+  --area-fitness: #f0886b;
 }
 
 html {
@@ -131,5 +134,10 @@ body {
 
   .animate-float-slow {
     animation: float-slow 14s ease-in-out infinite;
+  }
+
+  body[data-app-loading] header,
+  body[data-app-loading] footer {
+    visibility: hidden;
   }
 }

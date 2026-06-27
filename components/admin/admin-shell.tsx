@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { Loader2, Moon, Sun, Target } from "lucide-react";
 import { useAdminSessionGate } from "@/hooks/useAdminSessionGate";
 import { adminAuthorizedInit } from "@/lib/admin-api";
 
@@ -21,7 +21,7 @@ const inputClass =
   "w-full px-4 py-2.5 bg-white/5 border border-[var(--card-border)] rounded-md text-white focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/35";
 
 const navLinkClass = (isActive: boolean) =>
-  `px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${
+  `inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${
     isActive
       ? "bg-[var(--accent-cyan)] text-[#070d0d]"
       : "text-[var(--text-secondary)] hover:text-white hover:bg-white/5"
@@ -95,13 +95,26 @@ export function AdminShell({ active, title, subtitle, bare, children }: AdminShe
           </div>
           <nav className="flex flex-wrap items-center gap-2">
             <Link href="/admin" className={navLinkClass(active === "dashboard")}>
-              Dashboard
+              Admin
             </Link>
             <Link href="/admin/work-log" className={navLinkClass(active === "work-log")}>
               Work log
             </Link>
+            <span className="hidden h-4 w-px bg-[var(--card-border)] sm:block" aria-hidden />
             <Link href="/" className={navLinkClass(false)}>
-              Home
+              Dashboard
+            </Link>
+            <Link href="/monthly-targets" className={navLinkClass(false)}>
+              <Target className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Monthly</span>
+            </Link>
+            <Link href="/morning-azkar" className={navLinkClass(false)}>
+              <Sun className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Morning</span>
+            </Link>
+            <Link href="/evening-azkar" className={navLinkClass(false)}>
+              <Moon className="h-3.5 w-3.5 sm:mr-1" />
+              <span className="hidden sm:inline">Evening</span>
             </Link>
             <button
               type="button"
