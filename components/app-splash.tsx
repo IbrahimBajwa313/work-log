@@ -7,6 +7,25 @@ type AppSplashProps = {
   message?: string;
 };
 
+/** Nested splashes (Suspense fallback + page gate) must not leave body scroll locked. */
+let splashScrollLockCount = 0;
+
+function lockBodyScrollForSplash() {
+  splashScrollLockCount += 1;
+  if (splashScrollLockCount === 1) {
+    document.body.dataset.appLoading = "true";
+    document.body.style.overflow = "hidden";
+  }
+}
+
+function unlockBodyScrollForSplash() {
+  splashScrollLockCount = Math.max(0, splashScrollLockCount - 1);
+  if (splashScrollLockCount === 0) {
+    delete document.body.dataset.appLoading;
+    document.body.style.overflow = "";
+  }
+}
+
 function SplashContent({ message }: { message: string }) {
   return (
     <div
@@ -71,13 +90,10 @@ export function AppSplash({ message = "Loading your workspace…" }: AppSplashPr
 
   useEffect(() => {
     setMounted(true);
-    document.body.dataset.appLoading = "true";
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockBodyScrollForSplash();
 
     return () => {
-      delete document.body.dataset.appLoading;
-      document.body.style.overflow = prevOverflow;
+      unlockBodyScrollForSplash();
     };
   }, []);
 

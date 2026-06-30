@@ -698,7 +698,7 @@ export function AzkarReaderView({ period }: { period: AzkarPeriod }) {
       style={{ background: "var(--bg-gradient)" }}
     >
       {state ? (
-        <div className="fixed left-0 top-0 z-10 h-screen w-2 sm:hidden" aria-hidden>
+        <div className="pointer-events-none fixed left-0 top-0 z-10 h-screen w-2 sm:hidden" aria-hidden>
           <div className="relative h-full overflow-hidden rounded-r-full bg-white/10">
             <AzkarProgressFill progressPct={progressPct} config={config} />
           </div>
