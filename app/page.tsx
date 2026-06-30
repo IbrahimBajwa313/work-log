@@ -445,7 +445,6 @@ export default function HomePage() {
         subtitle="Log your day in three simple areas: Work, Deen & Fitness"
         userEmail={user?.email}
         userName={user?.name}
-        userPicture={user?.picture}
         offlineUserId={user?.id}
         onLogout={logout}
         onStartTour={() => setShowTour(true)}
