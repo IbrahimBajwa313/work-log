@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
 
     const id = account._id instanceof ObjectId ? account._id : new ObjectId(String(account._id));
     const name = typeof account.name === "string" ? account.name : "";
+    const picture = typeof account.picture === "string" ? account.picture : undefined;
     const token = await signWorklogSession({
       sub: id.toHexString(),
       email: emailNorm,
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
 
     const res = NextResponse.json({
       success: true,
-      user: { id: id.toHexString(), email: emailNorm, name },
+      user: { id: id.toHexString(), email: emailNorm, name, picture },
     });
     res.cookies.set(WORKLOG_SESSION_COOKIE, token, worklogSessionCookieOptions());
     return res;

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
+import Link from "next/link";
 import {
   Bookmark,
   Moon,
@@ -10,7 +11,7 @@ import {
   Trash2,
   UserPlus,
   Users,
-  X,
+  ArrowRight,
 } from "lucide-react";
 import { WORK_LOG_AREA_COLORS } from "@/lib/work-log-area-colors";
 
@@ -47,6 +48,7 @@ export type WorkLogSettings = {
   yearlyAchievementTargets: SerializedYearlyAchievementTarget[];
   monthlyGoalOverrides: MonthlyGoalOverride[];
   yearlyGoalOverrides: YearlyGoalOverride[];
+  carryOverIncompleteTasks: boolean;
 };
 
 const PRIORITY_STYLES: Record<WorkLogPriority, { label: string; className: string }> = {
@@ -62,18 +64,20 @@ const SETTINGS_PRIMARY_BTN =
   "inline-flex touch-target items-center justify-center gap-2 rounded-xl bg-[var(--accent-cyan)] px-4 py-2.5 text-sm font-bold text-[#070d0d] shadow-[0_0_20px_-6px_var(--accent-cyan-glow)] transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-45 disabled:shadow-none";
 
 function SettingsSection({
+  id,
   icon,
   title,
   description,
   children,
 }: {
+  id?: string;
   icon: ReactNode;
   title: string;
   description: string;
   children: ReactNode;
 }) {
   return (
-    <section className="glass-card rounded-2xl p-4 sm:p-5">
+    <section id={id} className="glass-card scroll-mt-24 rounded-2xl p-4 sm:p-5">
       <div className="mb-4 flex items-start gap-3">
         <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--accent-cyan)]/30 bg-[var(--accent-cyan)]/10">
           {icon}
@@ -168,12 +172,10 @@ export function PersonTabs({
   people,
   activePersonId,
   onSelect,
-  onManage,
 }: {
   people: WorkLogPerson[];
   activePersonId: string;
   onSelect: (id: string) => void;
-  onManage: () => void;
 }) {
   return (
     <div className="mb-5 sm:mb-6">
@@ -201,14 +203,13 @@ export function PersonTabs({
           {p.name}
         </button>
       ))}
-      <button
-        type="button"
-        onClick={onManage}
+      <Link
+        href="/manage"
         className="shrink-0 inline-flex items-center gap-1 rounded-full border border-[var(--card-border)] bg-white/5 px-3.5 py-2 text-sm font-semibold text-[var(--text-secondary)] hover:text-white touch-target sm:px-3 sm:py-1.5"
       >
         <Settings className="w-3.5 h-3.5" />
         Manage
-      </button>
+      </Link>
       </div>
     </div>
   );
@@ -217,11 +218,9 @@ export function PersonTabs({
 export function DailyGoalProgress({
   totalSeconds,
   goalMinutes,
-  onEditGoal,
 }: {
   totalSeconds: number;
   goalMinutes: number;
-  onEditGoal: () => void;
 }) {
   if (goalMinutes <= 0) return null;
   const goalSecs = goalMinutes * 60;
@@ -237,13 +236,12 @@ export function DailyGoalProgress({
           </span>
           <p className="text-sm font-bold text-white">Today&apos;s time goal</p>
         </div>
-        <button
-          type="button"
-          onClick={onEditGoal}
-          className="w-full rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-2.5 text-sm font-semibold text-[var(--text-secondary)] transition-colors hover:text-white sm:w-auto sm:py-1.5 sm:text-xs"
+        <Link
+          href="/manage#daily-goal"
+          className="w-full rounded-lg border border-[var(--card-border)] bg-white/5 px-3 py-2.5 text-center text-sm font-semibold text-[var(--text-secondary)] transition-colors hover:text-white sm:w-auto sm:py-1.5 sm:text-xs"
         >
           Change goal
-        </button>
+        </Link>
       </div>
       <div className="flex items-end justify-between mb-2">
         <p className="text-2xl font-bold text-white tabular-nums">{formatDuration(totalSeconds)}</p>
@@ -272,7 +270,6 @@ export function TaskTemplatesPanel({
   busy,
   onApply,
   onApplyAll,
-  onManage,
   className = "",
 }: {
   templates: WorkLogTaskTemplate[];
@@ -280,7 +277,6 @@ export function TaskTemplatesPanel({
   busy: boolean;
   onApply: (t: WorkLogTaskTemplate) => void;
   onApplyAll: () => void;
-  onManage: () => void;
   className?: string;
 }) {
   const pending = templates.filter((t) => !isTemplateAdded(t));
@@ -294,13 +290,12 @@ export function TaskTemplatesPanel({
         <p className="text-sm text-[var(--text-secondary)] mb-3">
           Save tasks you do every day — add them all with one tap instead of typing again.
         </p>
-        <button
-          type="button"
-          onClick={onManage}
+        <Link
+          href="/manage#saved-tasks"
           className="text-sm font-semibold text-[var(--accent-cyan)] hover:underline"
         >
           Create your first saved task →
-        </button>
+        </Link>
       </div>
     );
   }
@@ -326,13 +321,12 @@ export function TaskTemplatesPanel({
               Add all ({pending.length})
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={onManage}
+          <Link
+            href="/manage#saved-tasks"
             className="rounded-md border border-[var(--card-border)] bg-white/5 px-3 py-1 text-xs font-semibold text-[var(--text-secondary)] hover:text-white"
           >
             Manage
-          </button>
+          </Link>
         </div>
       </div>
       <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -374,15 +368,13 @@ export function TaskTemplatesPanel({
   );
 }
 
-export function WorkLogSettingsModal({
+export function WorkLogSettingsContent({
   settings,
   busy,
-  onClose,
   onPatch,
 }: {
   settings: WorkLogSettings;
   busy: boolean;
-  onClose: () => void;
   onPatch: (body: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [newPersonName, setNewPersonName] = useState("");
@@ -393,6 +385,11 @@ export function WorkLogSettingsModal({
   const [newTemplateMins, setNewTemplateMins] = useState("");
   const [goalHours, setGoalHours] = useState(String(Math.floor(settings.dailyGoalMinutes / 60)));
   const [goalMins, setGoalMins] = useState(String(settings.dailyGoalMinutes % 60));
+
+  useEffect(() => {
+    setGoalHours(String(Math.floor(settings.dailyGoalMinutes / 60)));
+    setGoalMins(String(settings.dailyGoalMinutes % 60));
+  }, [settings.dailyGoalMinutes]);
 
   const parseEst = (h: string, m: string) => {
     const hv = Number.parseInt(h || "0", 10);
@@ -434,34 +431,9 @@ export function WorkLogSettingsModal({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/65 backdrop-blur-sm sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="work-log-settings-title"
-    >
-      <div className="glass-card flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-[var(--card-border)] shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--card-border)]/80 px-5 pb-4 pt-5 sm:px-6 sm:pt-6">
-          <div>
-            <h2 id="work-log-settings-title" className="text-lg font-bold text-white sm:text-xl">
-              Work Logging settings
-            </h2>
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              People, goals, and reusable daily tasks
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close settings"
-            className="touch-target inline-flex items-center justify-center rounded-xl border border-transparent text-[var(--text-secondary)] transition-colors hover:border-[var(--card-border)] hover:bg-white/5 hover:text-white"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="space-y-4 overflow-y-auto px-4 py-4 safe-bottom sm:space-y-5 sm:px-5 sm:py-5">
+    <div className="space-y-4 sm:space-y-5">
           <SettingsSection
+            id="people"
             icon={<Users className="h-4 w-4 text-[var(--accent-cyan)]" />}
             title="People you track"
             description="Add family, teammates, or anyone else — each person has their own log and stats."
@@ -522,6 +494,7 @@ export function WorkLogSettingsModal({
           </SettingsSection>
 
           <SettingsSection
+            id="daily-goal"
             icon={<Target className="h-4 w-4 text-[var(--accent-cyan)]" />}
             title="Daily combined goal"
             description="Work, Deen, and fitness time counted together toward this target."
@@ -553,6 +526,47 @@ export function WorkLogSettingsModal({
           </SettingsSection>
 
           <SettingsSection
+            id="carry-over"
+            icon={<ArrowRight className="h-4 w-4 text-[var(--accent-cyan)]" />}
+            title="Carry over incomplete tasks"
+            description="When enabled, tasks you don't finish today are automatically added to tomorrow's list."
+          >
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.carryOverIncompleteTasks ?? false}
+              disabled={busy}
+              onClick={() =>
+                onPatch({
+                  action: "setCarryOverIncompleteTasks",
+                  enabled: !(settings.carryOverIncompleteTasks ?? false),
+                })
+              }
+              className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
+                (settings.carryOverIncompleteTasks ?? false)
+                  ? "border-[var(--accent-cyan)]/40 bg-[var(--accent-cyan)]/10"
+                  : "border-[var(--card-border)] bg-white/[0.03] hover:border-white/10"
+              } disabled:opacity-45`}
+            >
+              <span className="text-sm text-white">
+                {(settings.carryOverIncompleteTasks ?? false) ? "Enabled" : "Disabled"}
+              </span>
+              <span
+                className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                  (settings.carryOverIncompleteTasks ?? false) ? "bg-[var(--accent-cyan)]" : "bg-white/15"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    (settings.carryOverIncompleteTasks ?? false) ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </span>
+            </button>
+          </SettingsSection>
+
+          <SettingsSection
+            id="saved-tasks"
             icon={<Bookmark className="h-4 w-4 text-[var(--accent-cyan)]" />}
             title="Saved daily tasks"
             description="Preset tasks with priority and time — add to any day without retyping."
@@ -562,7 +576,7 @@ export function WorkLogSettingsModal({
                 No saved tasks yet. Create your first template below.
               </p>
             ) : (
-              <ul className="mb-4 max-h-48 space-y-2 overflow-y-auto pr-1">
+              <ul className="mb-4 space-y-2">
                 {settings.taskTemplates.map((t) => {
                   const style = PRIORITY_STYLES[t.priority];
                   return (
@@ -688,8 +702,6 @@ export function WorkLogSettingsModal({
               </button>
             </div>
           </SettingsSection>
-        </div>
-      </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type { SerializedWorkLogDay } from "@/lib/admin-work-log";
 import { applyClientWorkLogAction } from "@/lib/offline/client-mutations";
+import { applyCarryOverToDays } from "@/lib/work-log-carry-over";
 import {
   enqueueSync,
   getCachedDays,
@@ -41,8 +42,16 @@ export async function fetchWorkLogDays(
       const res = await fetch(`${apiBase}${personQuery}`, authorizedInit());
       const data = await res.json().catch(() => null);
       if (res.ok && data && Array.isArray(data.days)) {
-        await cacheDays(userId, personId, data.days);
-        return { ok: true, data: { days: data.days }, fromCache: false };
+        let days = data.days as SerializedWorkLogDay[];
+        const cachedSettings = await getCachedSettings(userId);
+        if (cachedSettings && typeof cachedSettings === "object" && "carryOverIncompleteTasks" in cachedSettings) {
+          days = applyCarryOverToDays(
+            days,
+            Boolean((cachedSettings as { carryOverIncompleteTasks?: boolean }).carryOverIncompleteTasks)
+          );
+        }
+        await cacheDays(userId, personId, days);
+        return { ok: true, data: { days }, fromCache: false };
       }
       if (!res.ok) {
         const msg =
@@ -51,7 +60,20 @@ export async function fetchWorkLogDays(
             : `Request failed (${res.status})`;
         const cached = await getCachedDays(userId, personId);
         if (cached) {
-          return { ok: true, data: { days: cached }, fromCache: true, offline: !isOnline() };
+          let days = cached;
+          const cachedSettings = await getCachedSettings(userId);
+          if (
+            cachedSettings &&
+            typeof cachedSettings === "object" &&
+            "carryOverIncompleteTasks" in cachedSettings
+          ) {
+            days = applyCarryOverToDays(
+              days,
+              Boolean((cachedSettings as { carryOverIncompleteTasks?: boolean }).carryOverIncompleteTasks)
+            );
+            await cacheDays(userId, personId, days);
+          }
+          return { ok: true, data: { days }, fromCache: true, offline: !isOnline() };
         }
         return { ok: false, error: msg };
       }
@@ -62,7 +84,16 @@ export async function fetchWorkLogDays(
 
   const cached = await getCachedDays(userId, personId);
   if (cached) {
-    return { ok: true, data: { days: cached }, fromCache: true, offline: true };
+    const cachedSettings = await getCachedSettings(userId);
+    let days = cached;
+    if (cachedSettings && typeof cachedSettings === "object" && "carryOverIncompleteTasks" in cachedSettings) {
+      days = applyCarryOverToDays(
+        days,
+        Boolean((cachedSettings as { carryOverIncompleteTasks?: boolean }).carryOverIncompleteTasks)
+      );
+      await cacheDays(userId, personId, days);
+    }
+    return { ok: true, data: { days }, fromCache: true, offline: true };
   }
   return { ok: false, error: "Failed to load work log.", offline: !isOnline() };
 }

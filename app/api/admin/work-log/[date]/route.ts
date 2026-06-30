@@ -14,6 +14,8 @@ import {
 import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
 import { isAdminRequestAuthorized } from "@/lib/admin-auth";
 import { applyWorkLogAction, workLogActionSchema } from "@/lib/work-log-mutations";
+import { runAdminCarryOverIfNeeded } from "@/lib/work-log-carry-over";
+import { localDateKey } from "@/lib/date-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +42,10 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     if (clientOrErr instanceof NextResponse) return clientOrErr;
     const db = clientOrErr.db(defaultDbName);
     await ensureAdminWorkLogIndexes(db);
+
+    if (params.date === localDateKey(new Date())) {
+      await runAdminCarryOverIfNeeded(db, personId);
+    }
 
     const doc = await db
       .collection<AdminWorkLogDoc>(adminWorkLogCollection)

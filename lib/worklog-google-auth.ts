@@ -13,6 +13,7 @@ export type GoogleSignInResult = {
   id: string;
   email: string;
   name: string;
+  picture?: string;
   isNewUser: boolean;
 };
 
@@ -60,6 +61,7 @@ export async function signInWithGoogleAccount(
         $set: {
           email: emailNorm,
           updatedAt: now,
+          ...(profile.picture ? { picture: profile.picture } : {}),
           ...(typeof byGoogleId.name !== "string" || !byGoogleId.name.trim()
             ? { name: accountNameFromGoogle(profile) }
             : {}),
@@ -75,6 +77,9 @@ export async function signInWithGoogleAccount(
         typeof byGoogleId.name === "string" && byGoogleId.name.trim()
           ? byGoogleId.name
           : accountNameFromGoogle(profile),
+      picture:
+        profile.picture ??
+        (typeof byGoogleId.picture === "string" ? byGoogleId.picture : undefined),
       isNewUser: false,
     };
   }
@@ -94,6 +99,7 @@ export async function signInWithGoogleAccount(
         $set: {
           googleId,
           updatedAt: now,
+          ...(profile.picture ? { picture: profile.picture } : {}),
         },
         $addToSet: { authProviders: "google" },
       }
@@ -103,6 +109,9 @@ export async function signInWithGoogleAccount(
       id: id.toHexString(),
       email: emailNorm,
       name: typeof byEmail.name === "string" ? byEmail.name : accountNameFromGoogle(profile),
+      picture:
+        profile.picture ??
+        (typeof byEmail.picture === "string" ? byEmail.picture : undefined),
       isNewUser: false,
     };
   }
@@ -112,6 +121,7 @@ export async function signInWithGoogleAccount(
     email: emailNorm,
     name,
     googleId,
+    ...(profile.picture ? { picture: profile.picture } : {}),
     authProviders: ["google"],
     status: "active",
     createdAt: now,
@@ -139,6 +149,7 @@ export async function signInWithGoogleAccount(
     id: insertedId.toHexString(),
     email: emailNorm,
     name,
+    picture: profile.picture,
     isNewUser: true,
   };
 }

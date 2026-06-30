@@ -7,6 +7,7 @@ export type WorklogUser = {
   id: string;
   email: string;
   name: string;
+  picture?: string;
 };
 
 /**

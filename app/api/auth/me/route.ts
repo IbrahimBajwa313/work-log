@@ -35,6 +35,7 @@ export async function GET(request: NextRequest) {
         id: session.sub,
         email: session.email,
         name: typeof account.name === "string" ? account.name : "",
+        picture: typeof account.picture === "string" ? account.picture : undefined,
       },
     });
   } catch (error) {

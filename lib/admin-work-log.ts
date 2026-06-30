@@ -24,6 +24,8 @@ export type AdminWorkLogTask = {
   priority: WorkLogPriority;
   /** Planned time investment in minutes (null when not estimated). */
   estimateMinutes: number | null;
+  /** Source task id when rolled over from a previous day. */
+  carriedFromTaskId?: string | null;
   createdAt: Date;
 };
 
@@ -56,6 +58,8 @@ export type AdminWorkLogDoc = {
     evening?: { counts?: Record<string, number>; tickedIds?: string[]; secondsSpent?: number };
   };
   notes?: string;
+  /** Last calendar day whose incomplete tasks were copied into this day. */
+  carryOverAppliedFrom?: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -110,6 +114,7 @@ export type SerializedWorkLogDay = {
   /** Time spent reading evening adhkār today, in seconds. */
   azkarEveningSeconds: number;
   notes: string;
+  carryOverAppliedFrom?: string | null;
 };
 
 export type SerializedWorkLogTask = {
@@ -160,6 +165,7 @@ export function serializeWorkLogDay(doc: AdminWorkLogDoc): SerializedWorkLogDay 
     azkarMorningSeconds: azkarSeconds(doc.azkarProgress?.morning?.secondsSpent),
     azkarEveningSeconds: azkarSeconds(doc.azkarProgress?.evening?.secondsSpent),
     notes: doc.notes ?? "",
+    carryOverAppliedFrom: doc.carryOverAppliedFrom ?? null,
   };
 }
 
@@ -185,5 +191,6 @@ export function emptyWorkLogDay(dateKey: string): SerializedWorkLogDay {
     azkarMorningSeconds: 0,
     azkarEveningSeconds: 0,
     notes: "",
+    carryOverAppliedFrom: null,
   };
 }

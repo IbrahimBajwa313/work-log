@@ -10,6 +10,7 @@ export type WorklogAuthProvider = "password" | "google";
 export type WorklogAccountDoc = {
   email: string;
   name: string;
+  picture?: string;
   passwordHash?: string;
   googleId?: string;
   authProviders?: WorklogAuthProvider[];

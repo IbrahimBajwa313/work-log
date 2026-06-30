@@ -9,6 +9,8 @@ import {
 } from "@/lib/user-work-log";
 import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
 import { collapseWorkLogDayRows, resolveUserDayForWrite } from "@/lib/work-log-day-resolve";
+import { runUserCarryOverIfNeeded } from "@/lib/work-log-carry-over";
+import { localDateKey } from "@/lib/date-keys";
 import { isValidDateKey } from "@/lib/admin-work-log";
 import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
 import { getWorklogSessionFromRequest } from "@/lib/worklog-auth";
@@ -44,6 +46,11 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     await ensureUserWorkLogIndexes(db);
 
     const coll = db.collection<UserWorkLogDoc>(userWorkLogCollection);
+
+    if (params.date === localDateKey(new Date())) {
+      await runUserCarryOverIfNeeded(db, coll, session.sub, personId);
+    }
+
     const candidates: UserWorkLogDoc[] = [];
     const personDoc = await coll.findOne({ userId: session.sub, personId, dateKey: params.date });
     if (personDoc) candidates.push(personDoc);

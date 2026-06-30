@@ -18,3 +18,11 @@ export function dateKeysForLastDays(count: number, from = new Date()): string[] 
   }
   return keys;
 }
+
+/** Shift a YYYY-MM-DD key by a number of calendar days (local). */
+export function dateKeyAddDays(dateKey: string, delta: number): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + delta);
+  return localDateKey(date);
+}

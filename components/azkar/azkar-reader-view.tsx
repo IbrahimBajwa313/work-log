@@ -409,9 +409,17 @@ function AdhkarCard({
               ) : null}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
               {showTasbih ? (
                 <>
+                  <button
+                    type="button"
+                    disabled={busy || done}
+                    onClick={onComplete}
+                    className={secondaryButtonClass}
+                  >
+                    Mark complete
+                  </button>
                   <button
                     type="button"
                     disabled={done}
@@ -420,14 +428,6 @@ function AdhkarCard({
                     aria-label={`Count one repetition (${count} of ${item.repeatCount})`}
                   >
                     +1
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy || done}
-                    onClick={onComplete}
-                    className={secondaryButtonClass}
-                  >
-                    Mark complete
                   </button>
                 </>
               ) : (

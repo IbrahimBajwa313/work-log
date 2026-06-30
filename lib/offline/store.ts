@@ -5,6 +5,7 @@ export type OfflineUser = {
   id: string;
   email: string;
   name: string;
+  picture?: string;
 };
 
 export type SyncQueueEntry = {

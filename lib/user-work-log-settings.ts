@@ -85,6 +85,8 @@ export type UserWorkLogSettingsDoc = {
   monthlyGoalOverrides: MonthlyGoalOverride[];
   /** Per-year time goal overrides keyed by "YYYY". */
   yearlyGoalOverrides: YearlyGoalOverride[];
+  /** When enabled, incomplete tasks from yesterday are copied to today. */
+  carryOverIncompleteTasks: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -140,6 +142,7 @@ export type SerializedWorkLogSettings = {
   yearlyAchievementTargets: SerializedYearlyAchievementTarget[];
   monthlyGoalOverrides: MonthlyGoalOverride[];
   yearlyGoalOverrides: YearlyGoalOverride[];
+  carryOverIncompleteTasks: boolean;
 };
 
 export type SerializedWorkLogTaskTemplate = {
@@ -234,6 +237,7 @@ export function serializeWorkLogSettings(doc: UserWorkLogSettingsDoc): Serialize
         yearKey: o.yearKey,
         minutes: Math.max(0, Math.round(o.minutes ?? 0)),
       })),
+    carryOverIncompleteTasks: Boolean(doc.carryOverIncompleteTasks),
   };
 }
 
@@ -344,6 +348,7 @@ export async function getOrCreateUserWorkLogSettings(
         yearlyAchievementTargets: [],
         monthlyGoalOverrides: [],
         yearlyGoalOverrides: [],
+        carryOverIncompleteTasks: false,
         createdAt: now,
         updatedAt: now,
       },
@@ -362,6 +367,7 @@ export async function getOrCreateUserWorkLogSettings(
       yearlyAchievementTargets: [],
       monthlyGoalOverrides: [],
       yearlyGoalOverrides: [],
+      carryOverIncompleteTasks: false,
     };
   }
 
@@ -404,6 +410,10 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("setDailyGoal"),
     minutes: z.coerce.number().int().min(0).max(24 * 60),
+  }),
+  z.object({
+    action: z.literal("setCarryOverIncompleteTasks"),
+    enabled: z.boolean(),
   }),
   z.object({
     action: z.literal("setMonthlyGoal"),
@@ -556,6 +566,13 @@ export async function applyWorkLogSettingsAction(
       await coll.updateOne(
         { userId },
         { $set: { dailyGoalMinutes: body.minutes, updatedAt: now } }
+      );
+      break;
+    }
+    case "setCarryOverIncompleteTasks": {
+      await coll.updateOne(
+        { userId },
+        { $set: { carryOverIncompleteTasks: body.enabled, updatedAt: now } }
       );
       break;
     }

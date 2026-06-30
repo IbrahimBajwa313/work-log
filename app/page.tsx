@@ -123,7 +123,7 @@ export default function HomePage() {
   const tourSteps = useMemo<SpotStep[]>(
     () => [
       {
-        selector: '[data-tour="logo"]',
+        selector: '[data-tour="dashboard-header"]',
         title: "Welcome to Work Logging 👋",
         body: "This is your daily dashboard. Here you track your time, tick off tasks, and build good habits. Let's take a 60-second tour of what each part does.",
         before: clickViewTab("track"),
@@ -445,6 +445,7 @@ export default function HomePage() {
         subtitle="Log your day in three simple areas: Work, Deen & Fitness"
         userEmail={user?.email}
         userName={user?.name}
+        userPicture={user?.picture}
         offlineUserId={user?.id}
         onLogout={logout}
         onStartTour={() => setShowTour(true)}

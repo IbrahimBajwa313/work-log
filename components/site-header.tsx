@@ -4,16 +4,18 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  BarChart3,
   CalendarRange,
   LayoutDashboard,
   Menu,
   Moon,
+  Settings,
   Shield,
   Sun,
   Target,
   X,
 } from "lucide-react";
+import { UserAvatar } from "@/components/user-avatar";
+import { useWorkLogSessionGate } from "@/hooks/useWorkLogSessionGate";
 
 type NavItem = {
   href: string;
@@ -32,7 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "App",
     items: [
-      { href: "/", label: "Dashboard", Icon: LayoutDashboard, exact: true },
+      { href: "/manage", label: "Manage", Icon: Settings },
       { href: "/monthly-targets", label: "Monthly Targets", Icon: Target },
       { href: "/yearly-targets", label: "Yearly Plans", Icon: CalendarRange },
     ],
@@ -52,6 +54,13 @@ const NAV_GROUPS: NavGroup[] = [
 
 const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
+const DASHBOARD_ITEM: NavItem = {
+  href: "/",
+  label: "Dashboard",
+  Icon: LayoutDashboard,
+  exact: true,
+};
+
 function isActive(pathname: string, item: NavItem): boolean {
   if (item.exact) return pathname === item.href;
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -67,9 +76,18 @@ function navLinkClass(active: boolean, compact = false) {
   }`;
 }
 
+function dashboardLinkClass(active: boolean) {
+  return `inline-flex items-center gap-2 rounded-xl border px-2.5 py-1.5 text-xs font-semibold transition-all sm:px-3 sm:py-2 sm:text-sm ${
+    active
+      ? "border-[var(--accent-cyan)]/50 bg-[var(--accent-cyan)]/10 text-white"
+      : "border-[var(--card-border)] bg-white/5 text-[var(--text-secondary)] hover:border-[var(--accent-cyan)]/35 hover:text-white"
+  }`;
+}
+
 export function SiteHeader() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { ready, isAuthenticated, user } = useWorkLogSessionGate();
 
   useEffect(() => {
     setMobileOpen(false);
@@ -84,14 +102,16 @@ export function SiteHeader() {
     };
   }, [mobileOpen]);
 
-  if (pathname.startsWith("/admin")) return null;
+  if (pathname.startsWith("/admin") || pathname === "/") return null;
+
+  const dashboardActive = isActive(pathname, DASHBOARD_ITEM);
 
   return (
     <header className="sticky top-0 z-50 border-b border-[var(--card-border)] bg-[#070d0d]/90 backdrop-blur-xl safe-top">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <Link
           href="/"
-          className="group flex min-w-0 shrink items-center gap-2.5 rounded-xl py-1 pr-2 transition-opacity hover:opacity-90"
+          className="group flex shrink items-center rounded-xl py-1 transition-opacity hover:opacity-90"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -99,13 +119,10 @@ export function SiteHeader() {
             alt="Work Logging"
             className="h-9 w-auto shrink-0 sm:h-10"
           />
-          <span className="hidden truncate text-sm font-extrabold tracking-tight text-white sm:block sm:text-base">
-            Work Logging
-          </span>
         </Link>
 
         <nav
-          className="hidden items-center gap-1 lg:flex"
+          className="hidden min-w-0 flex-1 items-center justify-center gap-1 lg:flex"
           aria-label="Main navigation"
         >
           {ALL_ITEMS.map((item) => {
@@ -124,11 +141,26 @@ export function SiteHeader() {
           })}
         </nav>
 
-        <div className="flex items-center gap-2 lg:hidden">
+        <div className="flex shrink-0 items-center gap-2">
+          {ready ? (
+            <Link
+              href="/"
+              className={dashboardLinkClass(dashboardActive)}
+              aria-current={dashboardActive ? "page" : undefined}
+            >
+              {isAuthenticated && user ? (
+                <UserAvatar user={user} />
+              ) : (
+                <LayoutDashboard className="h-4 w-4 shrink-0 text-[var(--accent-cyan)]" />
+              )}
+              <span className="hidden sm:inline">Dashboard</span>
+            </Link>
+          ) : null}
+
           <button
             type="button"
             onClick={() => setMobileOpen((o) => !o)}
-            className="touch-target inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--card-border)] bg-white/5 text-white transition-colors hover:border-[var(--accent-cyan)]/40"
+            className="touch-target inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--card-border)] bg-white/5 text-white transition-colors hover:border-[var(--accent-cyan)]/40 lg:hidden"
             aria-expanded={mobileOpen}
             aria-controls="mobile-nav"
             aria-label={mobileOpen ? "Close menu" : "Open menu"}
@@ -136,14 +168,6 @@ export function SiteHeader() {
             {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
-
-        <Link
-          href="/"
-          className="hidden items-center gap-1.5 rounded-xl border border-[var(--card-border)] bg-white/5 px-3 py-2 text-xs font-semibold text-[var(--text-secondary)] transition-colors hover:text-white md:inline-flex lg:hidden"
-        >
-          <BarChart3 className="h-3.5 w-3.5 text-[var(--accent-cyan)]" />
-          Dashboard
-        </Link>
       </div>
 
       {mobileOpen ? (

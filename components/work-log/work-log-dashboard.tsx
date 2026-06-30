@@ -40,7 +40,6 @@ import {
   DailyGoalProgress,
   PersonTabs,
   TaskTemplatesPanel,
-  WorkLogSettingsModal,
   type WorkLogSettings,
 } from "@/components/work-log/work-log-extras";
 import { DailyPlansSection } from "@/components/work-log/work-log-daily-plans";
@@ -66,11 +65,11 @@ import {
   fetchWorkLogDays,
   fetchWorkLogSettings,
   patchWorkLogDay,
-  patchWorkLogSettings,
 } from "@/lib/offline/work-log-api";
 import { applyClientWorkLogAction } from "@/lib/offline/client-mutations";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
 import { AppSplash } from "@/components/app-splash";
+import { UserAvatar } from "@/components/user-avatar";
 import { WORK_LOG_AREA_COLORS, workLogAreaColorForKind } from "@/lib/work-log-area-colors";
 
 export type WorkLogDashboardProps = {
@@ -82,6 +81,7 @@ export type WorkLogDashboardProps = {
   subtitle?: string;
   userEmail?: string;
   userName?: string;
+  userPicture?: string;
   onLogout?: () => void;
   /** Opens the onboarding tour again. */
   onStartTour?: () => void;
@@ -356,7 +356,6 @@ function viewTabIconClass(active: boolean, variant: "inline" | "bottom") {
 }
 
 function WorkLogDashboardHeader({
-  title,
   subtitle,
   greetingText,
   todayKey,
@@ -368,8 +367,10 @@ function WorkLogDashboardHeader({
   onStartTour,
   onLogout,
   showActions,
+  userEmail,
+  userName,
+  userPicture,
 }: {
-  title: string;
   subtitle: string;
   greetingText: string;
   todayKey: string;
@@ -381,6 +382,9 @@ function WorkLogDashboardHeader({
   onStartTour?: () => void;
   onLogout?: () => void;
   showActions: boolean;
+  userEmail?: string;
+  userName?: string;
+  userPicture?: string;
 }) {
   const dateBadge = (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[var(--card-border)] bg-white/5 px-3 py-1 text-xs font-medium text-white/90">
@@ -407,6 +411,20 @@ function WorkLogDashboardHeader({
 
   const actionButtons = showActions ? (
     <div className="flex shrink-0 items-center gap-1.5 sm:gap-3">
+      {userEmail ? (
+        <div
+          className="hidden items-center gap-2 rounded-xl border border-[var(--card-border)] bg-white/5 px-2 py-1.5 sm:flex sm:px-3"
+          title={userName || userEmail}
+        >
+          <UserAvatar
+            user={{ email: userEmail, name: userName ?? "", picture: userPicture }}
+            size="md"
+          />
+          <span className="max-w-[8rem] truncate text-sm font-semibold text-white">
+            {userName?.split(" ")[0] ?? userEmail.split("@")[0]}
+          </span>
+        </div>
+      ) : null}
       {onStartTour ? (
         <button
           type="button"
@@ -448,16 +466,10 @@ function WorkLogDashboardHeader({
               <span className="hidden sm:inline">{backLabel ?? "Back"}</span>
             </button>
           ) : null}
-          <div className="relative shrink-0">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -inset-2 rounded-full bg-[var(--accent-cyan)]/15 blur-2xl sm:-inset-3"
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt={title} data-tour="logo" className="relative h-10 w-auto sm:h-14" />
-          </div>
           <div className="hidden min-w-0 flex-1 space-y-2 sm:block">
-            <h1 className="text-2xl font-bold leading-tight text-white">{greetingText}</h1>
+            <h1 data-tour="dashboard-header" className="text-2xl font-bold leading-tight text-white">
+              {greetingText}
+            </h1>
             <div className="flex flex-wrap items-center gap-2">
               {dateBadge}
               {personBadge}
@@ -469,7 +481,9 @@ function WorkLogDashboardHeader({
       </div>
 
       <div className="mt-4 space-y-2.5 sm:hidden">
-        <h1 className="text-xl font-bold leading-snug text-white">{greetingText}</h1>
+        <h1 data-tour="dashboard-header" className="text-xl font-bold leading-snug text-white">
+          {greetingText}
+        </h1>
         <div className="flex flex-wrap items-center gap-2">
           {dateBadge}
           {personBadge}
@@ -614,6 +628,7 @@ export function WorkLogDashboard({
   subtitle = "Daily working time & completed tasks",
   userEmail,
   userName,
+  userPicture,
   onLogout,
   onStartTour,
   settingsApiBase,
@@ -628,7 +643,6 @@ export function WorkLogDashboard({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [activePersonId, setActivePersonId] = useState(PRIMARY_PERSON_ID);
   const [settings, setSettings] = useState<WorkLogSettings | null>(null);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const [notesDraft, setNotesDraft] = useState("");
   const [notesDirty, setNotesDirty] = useState(false);
@@ -873,59 +887,6 @@ export function WorkLogDashboard({
       return patchDay(todayKey, body);
     },
     [patchDay, todayKey, runningDay, runningDeenDay, runningFitnessDay]
-  );
-
-  const patchSettings = useCallback(
-    async (body: Record<string, unknown>) => {
-      if (!settingsApiBase) return false;
-      setBusy(true);
-      try {
-        if (offlineUserId) {
-          const result = await patchWorkLogSettings(
-            settingsApiBase,
-            offlineUserId,
-            body,
-            authorizedInit
-          );
-          if (!result.ok) {
-            setErrorMsg(result.error ?? "Settings update failed");
-            return false;
-          }
-          if (result.data?.settings) {
-            setSettings(result.data.settings as WorkLogSettings);
-          }
-          return true;
-        }
-
-        const res = await fetch(
-          settingsApiBase,
-          authorizedInit({
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body),
-          })
-        );
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          setErrorMsg(
-            data && typeof data === "object" && data !== null && "error" in data
-              ? String((data as { error: unknown }).error)
-              : "Settings update failed"
-          );
-          return false;
-        }
-        if (data && typeof data === "object" && "settings" in data) {
-          setSettings((data as { settings: WorkLogSettings }).settings);
-        }
-        return true;
-      } catch {
-        setErrorMsg("Settings update failed.");
-        return false;
-      } finally {
-        setBusy(false);
-      }
-    },
-    [settingsApiBase, authorizedInit, offlineUserId]
   );
 
   const saveNotes = async () => {
@@ -1215,7 +1176,6 @@ export function WorkLogDashboard({
           className="mb-5 sm:mb-8"
         >
           <WorkLogDashboardHeader
-            title={title}
             subtitle={subtitle}
             greetingText={greetingText}
             todayKey={todayKey}
@@ -1227,6 +1187,9 @@ export function WorkLogDashboard({
             onStartTour={onStartTour}
             onLogout={onLogout}
             showActions={Boolean(userEmail || onLogout || onStartTour)}
+            userEmail={userEmail}
+            userName={userName}
+            userPicture={userPicture}
           />
         </motion.div>
 
@@ -1242,7 +1205,6 @@ export function WorkLogDashboard({
               people={settings.people}
               activePersonId={activePersonId}
               onSelect={setActivePersonId}
-              onManage={() => setShowSettingsModal(true)}
             />
           </div>
         ) : null}
@@ -1371,7 +1333,6 @@ export function WorkLogDashboard({
             <DailyGoalProgress
               totalSeconds={stats.todayTotalSecs}
               goalMinutes={settings.dailyGoalMinutes}
-              onEditGoal={() => setShowSettingsModal(true)}
             />
           </div>
         ) : null}
@@ -1421,7 +1382,6 @@ export function WorkLogDashboard({
               busy={busy}
               onApply={applyTemplate}
               onApplyAll={applyAllTemplates}
-              onManage={() => setShowSettingsModal(true)}
             />
           </div>
         ) : null}
@@ -1883,15 +1843,6 @@ export function WorkLogDashboard({
           })}
         </div>
       </nav>
-
-      {showSettingsModal && settings ? (
-        <WorkLogSettingsModal
-          settings={settings}
-          busy={busy}
-          onClose={() => setShowSettingsModal(false)}
-          onPatch={patchSettings}
-        />
-      ) : null}
     </div>
   );
 }

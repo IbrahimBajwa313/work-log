@@ -55,6 +55,7 @@ type AdminWorkLogSettingsDoc = {
   yearlyAchievementTargets: YearlyAchievementTarget[];
   monthlyGoalOverrides: MonthlyGoalOverride[];
   yearlyGoalOverrides: YearlyGoalOverride[];
+  carryOverIncompleteTasks?: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -69,6 +70,7 @@ export type SerializedWorkLogSettings = {
   yearlyAchievementTargets: import("@/lib/user-work-log-settings").SerializedYearlyAchievementTarget[];
   monthlyGoalOverrides: import("@/lib/user-work-log-settings").MonthlyGoalOverride[];
   yearlyGoalOverrides: import("@/lib/user-work-log-settings").YearlyGoalOverride[];
+  carryOverIncompleteTasks: boolean;
 };
 
 export type SerializedWorkLogTaskTemplate = {
@@ -151,6 +153,7 @@ function serializeSettings(doc: AdminWorkLogSettingsDoc): SerializedWorkLogSetti
         yearKey: o.yearKey,
         minutes: Math.max(0, Math.round(o.minutes ?? 0)),
       })),
+    carryOverIncompleteTasks: Boolean(doc.carryOverIncompleteTasks),
   };
 }
 
@@ -182,6 +185,7 @@ export async function getOrCreateAdminWorkLogSettings(
         yearlyAchievementTargets: [],
         monthlyGoalOverrides: [],
         yearlyGoalOverrides: [],
+        carryOverIncompleteTasks: false,
         createdAt: now,
         updatedAt: now,
       },
@@ -200,6 +204,7 @@ export async function getOrCreateAdminWorkLogSettings(
       yearlyAchievementTargets: [],
       monthlyGoalOverrides: [],
       yearlyGoalOverrides: [],
+      carryOverIncompleteTasks: false,
     };
   }
 
@@ -242,6 +247,10 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("setDailyGoal"),
     minutes: z.coerce.number().int().min(0).max(24 * 60),
+  }),
+  z.object({
+    action: z.literal("setCarryOverIncompleteTasks"),
+    enabled: z.boolean(),
   }),
   z.object({
     action: z.literal("setMonthlyGoal"),
@@ -386,6 +395,13 @@ export async function applyAdminWorkLogSettingsAction(
     }
     case "setDailyGoal": {
       await coll.updateOne({ scope }, { $set: { dailyGoalMinutes: body.minutes, updatedAt: now } });
+      break;
+    }
+    case "setCarryOverIncompleteTasks": {
+      await coll.updateOne(
+        { scope },
+        { $set: { carryOverIncompleteTasks: body.enabled, updatedAt: now } }
+      );
       break;
     }
     case "setMonthlyGoal": {

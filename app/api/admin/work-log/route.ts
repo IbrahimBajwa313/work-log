@@ -12,6 +12,8 @@ import {
 } from "@/lib/admin-work-log-settings";
 import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
 import { isAdminRequestAuthorized } from "@/lib/admin-auth";
+import { runAdminCarryOverIfNeeded } from "@/lib/work-log-carry-over";
+import { localDateKey } from "@/lib/date-keys";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,8 @@ export async function GET(request: NextRequest) {
     if (clientOrErr instanceof NextResponse) return clientOrErr;
     const db = clientOrErr.db(defaultDbName);
     await ensureAdminWorkLogIndexes(db);
+
+    await runAdminCarryOverIfNeeded(db, personId);
 
     const dateFilter = to ? { $gte: from, $lte: to } : { $gte: from };
     const filter: Record<string, unknown> = { personId, dateKey: dateFilter };
