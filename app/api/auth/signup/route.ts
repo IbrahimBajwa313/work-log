@@ -10,6 +10,7 @@ import {
   normalizeWorklogName,
   worklogAccountsCollection,
 } from "@/lib/worklog-accounts";
+import { accountUsesGoogleOnly } from "@/lib/worklog-google-auth";
 import {
   signWorklogSession,
   worklogSessionCookieOptions,
@@ -84,12 +85,27 @@ export async function POST(request: NextRequest) {
     const db = clientOrErr.db(defaultDbName);
     await ensureWorklogAccountIndexes(db);
 
+    const existing = await db.collection(worklogAccountsCollection).findOne({ email: emailNorm });
+    if (existing) {
+      if (accountUsesGoogleOnly(existing)) {
+        return NextResponse.json(
+          { error: "This email is registered with Google. Continue with Google instead." },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json(
+        { error: "An account already exists for this email. Sign in instead." },
+        { status: 409 }
+      );
+    }
+
     let insertedId: ObjectId;
     try {
       const result = await db.collection(worklogAccountsCollection).insertOne({
         email: emailNorm,
         name: nameNorm,
         passwordHash,
+        authProviders: ["password"],
         status: "active",
         createdAt: now,
         updatedAt: now,

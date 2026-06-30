@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock, Eye, EyeOff, ListChecks, Loader2, Sparkles } from "lucide-react";
 import { AppSplash } from "@/components/app-splash";
+import { GoogleSignInButton } from "@/components/auth/google-sign-in-button";
+import { authErrorMessage } from "@/lib/auth-errors";
 import { WorkLogDashboard } from "@/components/work-log/work-log-dashboard";
 import {
   SpotlightTour,
@@ -40,7 +42,8 @@ function showPlan(id: "work" | "deen" | "fitness") {
 }
 
 export default function HomePage() {
-  const { ready, isAuthenticated, user, signup, login, logout } = useWorkLogSessionGate();
+  const { ready, isAuthenticated, user, signup, login, logout, signInWithGoogle, refreshSession } =
+    useWorkLogSessionGate();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -48,7 +51,55 @@ export default function HomePage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [showTour, setShowTour] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/google/status");
+        if (!res.ok) return;
+        const data = (await res.json()) as { enabled?: boolean };
+        if (!cancelled) setGoogleEnabled(Boolean(data.enabled));
+      } catch {
+        // Google button stays hidden when status cannot be loaded
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const authError = params.get("auth_error");
+    const oauthSuccess = params.get("oauth") === "success";
+    const isNewUser = params.get("new") === "1";
+
+    if (authError) {
+      setError(authErrorMessage(authError));
+    }
+
+    if (oauthSuccess) {
+      void refreshSession().then((ok) => {
+        if (ok && isNewUser) {
+          setShowTour(true);
+        }
+      });
+    }
+
+    if (authError || oauthSuccess) {
+      params.delete("auth_error");
+      params.delete("oauth");
+      params.delete("new");
+      const next = params.toString();
+      const nextUrl = next ? `${window.location.pathname}?${next}` : window.location.pathname;
+      window.history.replaceState({}, "", nextUrl);
+    }
+  }, [ready, refreshSession]);
 
   const authorizedInit = useCallback(
     (init?: RequestInit) => workLogAuthorizedInit(init),
@@ -266,6 +317,23 @@ export default function HomePage() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {googleEnabled ? (
+                <>
+                  <GoogleSignInButton
+                    intent={mode}
+                    disabled={submitting}
+                    onClick={signInWithGoogle}
+                  />
+                  <div className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-[var(--card-border)]" />
+                    <span className="text-xs uppercase tracking-wide text-[var(--text-secondary)]">
+                      or
+                    </span>
+                    <div className="h-px flex-1 bg-[var(--card-border)]" />
+                  </div>
+                </>
+              ) : null}
+
               {mode === "signup" ? (
                 <div>
                   <label htmlFor="name" className="block text-white text-sm font-medium mb-2">

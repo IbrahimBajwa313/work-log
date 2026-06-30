@@ -30,7 +30,12 @@ export type WorkLogTaskTemplate = {
   list: "work" | "deen";
 };
 
-import type { SerializedMonthlyAchievementTarget } from "@/lib/user-work-log-settings";
+import type {
+  MonthlyGoalOverride,
+  SerializedMonthlyAchievementTarget,
+  SerializedYearlyAchievementTarget,
+  YearlyGoalOverride,
+} from "@/lib/user-work-log-settings";
 
 export type WorkLogSettings = {
   people: WorkLogPerson[];
@@ -38,6 +43,10 @@ export type WorkLogSettings = {
   dailyGoalMinutes: number;
   monthlyGoalMinutes: number;
   monthlyAchievementTargets: SerializedMonthlyAchievementTarget[];
+  yearlyGoalMinutes: number;
+  yearlyAchievementTargets: SerializedYearlyAchievementTarget[];
+  monthlyGoalOverrides: MonthlyGoalOverride[];
+  yearlyGoalOverrides: YearlyGoalOverride[];
 };
 
 const PRIORITY_STYLES: Record<WorkLogPriority, { label: string; className: string }> = {

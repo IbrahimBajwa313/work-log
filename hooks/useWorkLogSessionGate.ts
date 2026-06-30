@@ -143,7 +143,12 @@ export function useWorkLogSessionGate() {
     setIsAuthenticated(false);
   }, []);
 
-  return { ready, isAuthenticated, user, signup, login, logout };
+  const signInWithGoogle = useCallback((intent: "login" | "signup" = "login") => {
+    const params = new URLSearchParams({ intent });
+    window.location.assign(`/api/auth/google?${params.toString()}`);
+  }, []);
+
+  return { ready, isAuthenticated, user, signup, login, logout, signInWithGoogle, refreshSession };
 }
 
 export function workLogAuthorizedInit(init: RequestInit = {}): RequestInit {

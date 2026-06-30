@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  CalendarRange,
   LayoutDashboard,
   Menu,
   Moon,
@@ -33,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/", label: "Dashboard", Icon: LayoutDashboard, exact: true },
       { href: "/monthly-targets", label: "Monthly Targets", Icon: Target },
+      { href: "/yearly-targets", label: "Yearly Plans", Icon: CalendarRange },
     ],
   },
   {

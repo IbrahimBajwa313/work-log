@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Briefcase,
-  CalendarDays,
+  CalendarRange,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -18,6 +18,7 @@ import {
   Sparkles,
   Target,
   TrendingUp,
+  Trophy,
   Zap,
 } from "lucide-react";
 import {
@@ -33,9 +34,12 @@ import { AppSplash } from "@/components/app-splash";
 import { MilestoneTargetCard } from "@/components/work-log/milestone-target-card";
 import type { SerializedWorkLogDay } from "@/lib/admin-work-log";
 import {
-  achievementTargetsForMonth,
-  effectiveMonthlyGoalMinutes,
-  hasMonthlyGoalOverride,
+  achievementTargetsForYear,
+  dayOfYear,
+  daysInCalendarMonth,
+  daysInCalendarYear,
+  effectiveYearlyGoalMinutes,
+  hasYearlyGoalOverride,
   isMilestoneComplete,
   MILESTONE_CATEGORY_LABELS,
   MONTHLY_MILESTONE_CATEGORIES,
@@ -45,6 +49,12 @@ import {
 } from "@/lib/user-work-log-settings";
 import type { WorkLogSettings } from "@/components/work-log/work-log-extras";
 import { WORK_LOG_AREA_COLORS } from "@/lib/work-log-area-colors";
+import {
+  deenLiveSeconds,
+  fitnessLiveSeconds,
+  liveSeconds,
+  totalLiveSeconds,
+} from "@/lib/work-log-live-seconds";
 import {
   fetchWorkLogDays,
   fetchWorkLogSettings,
@@ -58,43 +68,7 @@ import { useOfflineSync } from "@/hooks/useOfflineSync";
 
 type WorkLogDay = SerializedWorkLogDay;
 
-function localDateKey(d = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function liveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = day.totalMinutes * 60;
-  if (day.timerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.timerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
-}
-
-function deenLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = (day.deenMinutes ?? 0) * 60;
-  if (day.deenTimerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.deenTimerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
-}
-
-function fitnessLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = (day.fitnessMinutes ?? 0) * 60;
-  if (day.fitnessTimerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.fitnessTimerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
-}
-
-function totalLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  return liveSeconds(day, nowMs) + deenLiveSeconds(day, nowMs) + fitnessLiveSeconds(day, nowMs);
-}
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 function formatDuration(totalSeconds: number): string {
   const h = Math.floor(totalSeconds / 3600);
@@ -108,17 +82,6 @@ function formatEstimate(minutes: number): string {
   const m = minutes % 60;
   if (h === 0) return `${m}m`;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
-
-function monthLabel(year: number, monthIndex: number): string {
-  return new Date(year, monthIndex, 1).toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function daysInMonth(year: number, monthIndex: number): number {
-  return new Date(year, monthIndex + 1, 0).getDate();
 }
 
 function ProgressRing({
@@ -140,9 +103,9 @@ function ProgressRing({
     <div className="relative" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
         <defs>
-          <linearGradient id="monthlyRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor={met ? "#34d399" : "var(--accent-cyan)"} />
-            <stop offset="100%" stopColor={met ? "#6ee7b7" : "var(--accent-cyan-2)"} />
+          <linearGradient id="yearlyRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={met ? "#34d399" : "#a78bfa"} />
+            <stop offset="100%" stopColor={met ? "#6ee7b7" : "var(--accent-cyan)"} />
           </linearGradient>
         </defs>
         <circle
@@ -158,7 +121,7 @@ function ProgressRing({
           cy={size / 2}
           r={r}
           fill="none"
-          stroke="url(#monthlyRingGrad)"
+          stroke="url(#yearlyRingGrad)"
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circumference}
@@ -168,7 +131,7 @@ function ProgressRing({
           style={{
             filter: met
               ? "drop-shadow(0 0 12px rgba(52,211,153,0.5))"
-              : "drop-shadow(0 0 12px var(--accent-cyan-glow))",
+              : "drop-shadow(0 0 12px rgba(167,139,250,0.4))",
           }}
         />
       </svg>
@@ -182,58 +145,73 @@ function ProgressRing({
   );
 }
 
-function HeatCell({
-  day,
+function MonthCell({
+  monthIndex,
+  year,
   totalSecs,
-  goalDaySecs,
-  isToday,
+  goalMonthSecs,
+  isCurrentMonth,
   isFuture,
+  onSelect,
 }: {
-  day: number;
+  monthIndex: number;
+  year: number;
   totalSecs: number;
-  goalDaySecs: number;
-  isToday: boolean;
+  goalMonthSecs: number;
+  isCurrentMonth: boolean;
   isFuture: boolean;
+  onSelect?: () => void;
 }) {
   const intensity =
-    goalDaySecs > 0 ? Math.min(1, totalSecs / goalDaySecs) : totalSecs > 0 ? 0.5 : 0;
+    goalMonthSecs > 0 ? Math.min(1, totalSecs / goalMonthSecs) : totalSecs > 0 ? 0.5 : 0;
   const hours = totalSecs / 3600;
 
   let bg = "rgba(255,255,255,0.03)";
   if (!isFuture && totalSecs > 0) {
     if (intensity >= 1) bg = "rgba(52,211,153,0.45)";
-    else if (intensity >= 0.6) bg = "rgba(0,255,204,0.35)";
-    else if (intensity >= 0.25) bg = "rgba(34,211,238,0.22)";
-    else bg = "rgba(167,139,250,0.18)";
+    else if (intensity >= 0.6) bg = "rgba(167,139,250,0.35)";
+    else if (intensity >= 0.25) bg = "rgba(0,255,204,0.22)";
+    else bg = "rgba(34,211,238,0.18)";
   }
 
+  const label = MONTH_SHORT[monthIndex];
+
   return (
-    <div
-      title={isFuture ? `Day ${day}` : `${formatDuration(totalSecs)} logged`}
-      className={`group relative flex aspect-square flex-col items-center justify-center rounded-xl border transition-all duration-300 ${
-        isToday
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={isFuture}
+      title={
+        isFuture
+          ? `${label} ${year}`
+          : `${label}: ${formatDuration(totalSecs)} logged`
+      }
+      className={`group relative flex flex-col items-center justify-center rounded-2xl border p-3 transition-all duration-300 sm:p-4 ${
+        isCurrentMonth
           ? "border-[var(--accent-cyan)]/60 ring-2 ring-[var(--accent-cyan)]/25"
           : "border-[var(--card-border)]/60"
-      } ${isFuture ? "opacity-35" : "hover:scale-[1.04] hover:border-[var(--accent-cyan)]/40"}`}
+      } ${isFuture ? "cursor-default opacity-35" : "hover:scale-[1.03] hover:border-violet-400/40"}`}
       style={{ background: bg }}
     >
       <span
-        className={`text-xs font-bold tabular-nums ${
-          isToday ? "text-[var(--accent-cyan)]" : "text-white/70"
+        className={`text-xs font-bold uppercase tracking-wide ${
+          isCurrentMonth ? "text-[var(--accent-cyan)]" : "text-white/70"
         }`}
       >
-        {day}
+        {label}
       </span>
       {!isFuture && hours > 0 ? (
-        <span className="mt-0.5 text-[9px] font-semibold tabular-nums text-white/50 group-hover:text-white/80">
-          {hours >= 1 ? `${hours.toFixed(1)}h` : `${Math.round(totalSecs / 60)}m`}
+        <span className="mt-1 text-sm font-extrabold tabular-nums text-white">
+          {hours >= 10 ? `${Math.round(hours)}h` : `${hours.toFixed(1)}h`}
         </span>
+      ) : !isFuture ? (
+        <span className="mt-1 text-[10px] text-white/40">—</span>
       ) : null}
-    </div>
+    </button>
   );
 }
 
-export function MonthlyTargetsView() {
+export function YearlyTargetsView() {
   const router = useRouter();
   const { ready, isAuthenticated, user } = useWorkLogSessionGate();
   const authorizedInit = useCallback(
@@ -248,25 +226,20 @@ export function MonthlyTargetsView() {
   const [busy, setBusy] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [activePersonId] = useState(PRIMARY_PERSON_ID);
-  const [viewMonth, setViewMonth] = useState(() => {
-    const now = new Date();
-    return { year: now.getFullYear(), monthIndex: now.getMonth() };
-  });
-  const [goalHours, setGoalHours] = useState("176");
+  const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
+  const [goalHours, setGoalHours] = useState("2112");
   const [goalMins, setGoalMins] = useState("0");
   const [editingGoal, setEditingGoal] = useState(false);
   const [newTargetTitle, setNewTargetTitle] = useState("");
   const [newTargetCount, setNewTargetCount] = useState("");
   const [newTargetUnit, setNewTargetUnit] = useState("");
-  const [newTargetCategory, setNewTargetCategory] = useState<MonthlyMilestoneCategory>("deen");
+  const [newTargetCategory, setNewTargetCategory] = useState<MonthlyMilestoneCategory>("work");
   const [showAddTarget, setShowAddTarget] = useState(false);
 
-  const todayKey = localDateKey(new Date(nowMs));
-  const { year, monthIndex } = viewMonth;
-  const monthPrefix = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
-  const dim = daysInMonth(year, monthIndex);
-  const isCurrentMonth =
-    year === new Date(nowMs).getFullYear() && monthIndex === new Date(nowMs).getMonth();
+  const currentYear = new Date(nowMs).getFullYear();
+  const isCurrentYear = viewYear === currentYear;
+  const yearKey = String(viewYear);
+  const daysInYear = daysInCalendarYear(viewYear);
 
   useEffect(() => {
     const id = setInterval(() => setNowMs(Date.now()), 1000);
@@ -301,21 +274,25 @@ export function MonthlyTargetsView() {
             category: normalizeMilestoneCategory(t.category),
             targetCount: Math.max(0, t.targetCount ?? 0),
           })),
-          yearlyAchievementTargets: raw.yearlyAchievementTargets ?? [],
+          yearlyAchievementTargets: (raw.yearlyAchievementTargets ?? []).map((t) => ({
+            ...t,
+            category: normalizeMilestoneCategory(t.category),
+            targetCount: Math.max(0, t.targetCount ?? 0),
+          })),
           monthlyGoalOverrides: raw.monthlyGoalOverrides ?? [],
           yearlyGoalOverrides: raw.yearlyGoalOverrides ?? [],
         };
         setSettings(s);
-        const effective = effectiveMonthlyGoalMinutes(s, year, monthIndex);
+        const effective = effectiveYearlyGoalMinutes(s, viewYear);
         setGoalHours(String(Math.floor(effective / 60)));
         setGoalMins(String(effective % 60));
       }
     } catch {
-      setErrorMsg("Failed to load monthly data.");
+      setErrorMsg("Failed to load yearly data.");
     } finally {
       setLoading(false);
     }
-  }, [user?.id, activePersonId, authorizedInit, year, monthIndex]);
+  }, [user?.id, activePersonId, authorizedInit, viewYear]);
 
   useEffect(() => {
     if (user?.id) void load();
@@ -325,62 +302,90 @@ export function MonthlyTargetsView() {
 
   useEffect(() => {
     if (!settings) return;
-    const effective = effectiveMonthlyGoalMinutes(settings, year, monthIndex);
+    const effective = effectiveYearlyGoalMinutes(settings, viewYear);
     setGoalHours(String(Math.floor(effective / 60)));
     setGoalMins(String(effective % 60));
-  }, [settings, year, monthIndex]);
+  }, [settings, viewYear]);
 
-  const monthStats = useMemo(() => {
-    const byKey = new Map(days.map((d) => [d.dateKey, d]));
+  const yearStats = useMemo(() => {
+    const yearPrefix = `${viewYear}-`;
+    const yearDays = days.filter((d) => d.dateKey.startsWith(yearPrefix));
+    const byKey = new Map(yearDays.map((d) => [d.dateKey, d]));
+
     let totalSecs = 0;
     let workSecs = 0;
     let deenSecs = 0;
     let fitnessSecs = 0;
     let activeDays = 0;
 
-    const dailyData: { day: number; total: number; work: number; deen: number; fitness: number }[] =
-      [];
+    const monthlyData: {
+      month: string;
+      monthIndex: number;
+      total: number;
+      work: number;
+      deen: number;
+      fitness: number;
+      totalSecs: number;
+    }[] = [];
 
-    for (let d = 1; d <= dim; d++) {
-      const key = `${monthPrefix}-${String(d).padStart(2, "0")}`;
-      const day = byKey.get(key);
-      const w = liveSeconds(day, nowMs);
-      const de = deenLiveSeconds(day, nowMs);
-      const f = fitnessLiveSeconds(day, nowMs);
-      const t = w + de + f;
-      totalSecs += t;
-      workSecs += w;
-      deenSecs += de;
-      fitnessSecs += f;
-      if (t >= 60) activeDays += 1;
-      dailyData.push({
-        day: d,
-        total: Math.round((t / 3600) * 10) / 10,
-        work: Math.round((w / 3600) * 10) / 10,
-        deen: Math.round((de / 3600) * 10) / 10,
-        fitness: Math.round((f / 3600) * 10) / 10,
+    const quarterlySecs = [0, 0, 0, 0];
+
+    for (let m = 0; m < 12; m++) {
+      const monthPrefix = `${viewYear}-${String(m + 1).padStart(2, "0")}`;
+      const dim = daysInCalendarMonth(viewYear, m);
+      let monthTotal = 0;
+      let monthWork = 0;
+      let monthDeen = 0;
+      let monthFitness = 0;
+
+      for (let d = 1; d <= dim; d++) {
+        const key = `${monthPrefix}-${String(d).padStart(2, "0")}`;
+        const day = byKey.get(key);
+        const w = liveSeconds(day, nowMs);
+        const de = deenLiveSeconds(day, nowMs);
+        const f = fitnessLiveSeconds(day, nowMs);
+        const t = w + de + f;
+        monthTotal += t;
+        monthWork += w;
+        monthDeen += de;
+        monthFitness += f;
+        if (t >= 60) activeDays += 1;
+      }
+
+      totalSecs += monthTotal;
+      workSecs += monthWork;
+      deenSecs += monthDeen;
+      fitnessSecs += monthFitness;
+      quarterlySecs[Math.floor(m / 3)] += monthTotal;
+
+      monthlyData.push({
+        month: MONTH_SHORT[m],
+        monthIndex: m,
+        total: Math.round((monthTotal / 3600) * 10) / 10,
+        work: Math.round((monthWork / 3600) * 10) / 10,
+        deen: Math.round((monthDeen / 3600) * 10) / 10,
+        fitness: Math.round((monthFitness / 3600) * 10) / 10,
+        totalSecs: monthTotal,
       });
     }
 
-    const goalMinutes = settings
-      ? effectiveMonthlyGoalMinutes(settings, year, monthIndex)
-      : 0;
+    const goalMinutes = settings ? effectiveYearlyGoalMinutes(settings, viewYear) : 0;
     const goalSecs = goalMinutes * 60;
     const pct = goalSecs > 0 ? Math.min(100, Math.round((totalSecs / goalSecs) * 100)) : 0;
     const met = goalSecs > 0 && totalSecs >= goalSecs;
     const remainingSecs = Math.max(0, goalSecs - totalSecs);
 
     const today = new Date(nowMs);
-    const dayOfMonth = isCurrentMonth ? today.getDate() : dim;
-    const daysLeft = isCurrentMonth ? Math.max(0, dim - dayOfMonth) : 0;
+    const currentDayOfYear = isCurrentYear ? dayOfYear(today) : daysInYear;
+    const daysLeft = isCurrentYear ? Math.max(0, daysInYear - currentDayOfYear) : 0;
     const expectedSecs =
-      goalSecs > 0 && isCurrentMonth ? (goalSecs * dayOfMonth) / dim : goalSecs;
+      goalSecs > 0 && isCurrentYear ? (goalSecs * currentDayOfYear) / daysInYear : goalSecs;
     const paceRatio = expectedSecs > 0 ? totalSecs / expectedSecs : 1;
     const paceLabel =
-      !isCurrentMonth || goalSecs <= 0
+      !isCurrentYear || goalSecs <= 0
         ? met
           ? "Target reached"
-          : "Month complete"
+          : "Year complete"
         : paceRatio >= 1.05
           ? "Ahead of pace"
           : paceRatio >= 0.9
@@ -393,22 +398,25 @@ export function MonthlyTargetsView() {
           ? "var(--accent-cyan)"
           : "#fb923c";
 
-    const dailyGoalSecs = goalSecs > 0 ? goalSecs / dim : 0;
+    const goalMonthSecs = goalSecs > 0 ? goalSecs / 12 : 0;
+    const consistencyPct =
+      isCurrentYear
+        ? Math.round((activeDays / Math.max(1, currentDayOfYear)) * 100)
+        : Math.round((activeDays / daysInYear) * 100);
 
-    const firstWeekday = new Date(year, monthIndex, 1).getDay();
-    const calendarCells: (
-      | { type: "pad" }
-      | { type: "day"; day: number; totalSecs: number; isToday: boolean; isFuture: boolean }
-    )[] = [];
-    for (let i = 0; i < firstWeekday; i++) calendarCells.push({ type: "pad" });
-    for (let d = 1; d <= dim; d++) {
-      const key = `${monthPrefix}-${String(d).padStart(2, "0")}`;
-      const day = byKey.get(key);
-      const t = totalLiveSeconds(day, nowMs);
-      const isToday = key === todayKey;
-      const isFuture = isCurrentMonth && d > today.getDate();
-      calendarCells.push({ type: "day", day: d, totalSecs: t, isToday, isFuture });
-    }
+    const bestMonth = monthlyData.reduce(
+      (best, m) => (m.totalSecs > best.totalSecs ? m : best),
+      monthlyData[0]
+    );
+
+    const quarterlyData = [
+      { label: "Q1", months: "Jan – Mar", secs: quarterlySecs[0] },
+      { label: "Q2", months: "Apr – Jun", secs: quarterlySecs[1] },
+      { label: "Q3", months: "Jul – Sep", secs: quarterlySecs[2] },
+      { label: "Q4", months: "Oct – Dec", secs: quarterlySecs[3] },
+    ];
+
+    const avgActiveDaySecs = activeDays > 0 ? totalSecs / activeDays : 0;
 
     return {
       totalSecs,
@@ -424,22 +432,26 @@ export function MonthlyTargetsView() {
       daysLeft,
       paceLabel,
       paceTint,
-      dailyGoalSecs,
-      dailyData,
-      calendarCells,
+      goalMonthSecs,
+      monthlyData,
+      quarterlyData,
+      consistencyPct,
+      bestMonth,
+      avgActiveDaySecs,
+      currentMonthIndex: isCurrentYear ? today.getMonth() : -1,
     };
-  }, [days, nowMs, dim, monthPrefix, settings, year, monthIndex, isCurrentMonth, todayKey]);
+  }, [days, nowMs, settings, viewYear, isCurrentYear, daysInYear]);
 
-  const monthAchievementTargets = useMemo(() => {
+  const yearAchievementTargets = useMemo(() => {
     if (!settings) return [];
-    return achievementTargetsForMonth(settings, monthPrefix);
-  }, [settings, monthPrefix]);
+    return achievementTargetsForYear(settings, yearKey);
+  }, [settings, yearKey]);
 
   const achievementSummary = useMemo(() => {
-    const total = monthAchievementTargets.length;
-    const completed = monthAchievementTargets.filter(isMilestoneComplete).length;
+    const total = yearAchievementTargets.length;
+    const completed = yearAchievementTargets.filter(isMilestoneComplete).length;
     return { total, completed };
-  }, [monthAchievementTargets]);
+  }, [yearAchievementTargets]);
 
   const patchSettings = async (body: Record<string, unknown>) => {
     if (!user?.id) return false;
@@ -471,9 +483,9 @@ export function MonthlyTargetsView() {
     const h = Number.parseInt(goalHours || "0", 10);
     const m = Number.parseInt(goalMins || "0", 10);
     const ok = await patchSettings({
-      action: "setMonthlyGoal",
+      action: "setYearlyGoal",
       minutes: h * 60 + m,
-      monthKey: monthPrefix,
+      yearKey,
     });
     if (ok) setEditingGoal(false);
   };
@@ -487,8 +499,8 @@ export function MonthlyTargetsView() {
     const targetCount =
       Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : 0;
     const ok = await patchSettings({
-      action: "addMonthlyAchievementTarget",
-      monthKey: monthPrefix,
+      action: "addYearlyAchievementTarget",
+      yearKey,
       title,
       targetCount,
       unit: newTargetUnit.trim() || undefined,
@@ -498,14 +510,14 @@ export function MonthlyTargetsView() {
       setNewTargetTitle("");
       setNewTargetCount("");
       setNewTargetUnit("");
-      setNewTargetCategory("deen");
+      setNewTargetCategory("work");
       setShowAddTarget(false);
     }
   };
 
   const updateAchievementCount = async (targetId: string, currentCount: number) => {
     await patchSettings({
-      action: "updateMonthlyAchievementTarget",
+      action: "updateYearlyAchievementTarget",
       targetId,
       currentCount,
     });
@@ -521,7 +533,7 @@ export function MonthlyTargetsView() {
     }
   ) => {
     await patchSettings({
-      action: "updateMonthlyAchievementTarget",
+      action: "updateYearlyAchievementTarget",
       targetId,
       title: details.title,
       targetCount: details.targetCount,
@@ -531,24 +543,19 @@ export function MonthlyTargetsView() {
   };
 
   const deleteAchievementTarget = async (targetId: string) => {
-    await patchSettings({ action: "deleteMonthlyAchievementTarget", targetId });
+    await patchSettings({ action: "deleteYearlyAchievementTarget", targetId });
   };
 
-  const shiftMonth = (delta: number) => {
-    setViewMonth((prev) => {
-      const d = new Date(prev.year, prev.monthIndex + delta, 1);
-      return { year: d.getFullYear(), monthIndex: d.getMonth() };
-    });
+  const shiftYear = (delta: number) => {
+    setViewYear((prev) => prev + delta);
   };
 
-  const hasPeriodGoalOverride = settings
-    ? hasMonthlyGoalOverride(settings, monthPrefix)
-    : false;
+  const hasPeriodGoalOverride = settings ? hasYearlyGoalOverride(settings, yearKey) : false;
 
   if (!ready || !isAuthenticated) return <AppSplash />;
 
   const inputClass =
-    "w-full px-3 py-2.5 bg-white/5 border border-[var(--card-border)] rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent-cyan)]/35";
+    "w-full px-3 py-2.5 bg-white/5 border border-[var(--card-border)] rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-400/35";
 
   return (
     <main
@@ -556,13 +563,12 @@ export function MonthlyTargetsView() {
       style={{ background: "var(--bg-gradient)" }}
     >
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="animate-float-slow absolute -top-32 left-1/4 h-[22rem] w-[22rem] rounded-full bg-violet-500/12 blur-[120px]" />
-        <div className="animate-float-slow absolute top-1/4 -right-20 h-96 w-96 rounded-full bg-[var(--accent-cyan)]/10 blur-[130px] [animation-delay:-4s]" />
-        <div className="absolute bottom-0 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-emerald-500/10 blur-[100px]" />
+        <div className="animate-float-slow absolute -top-32 right-1/4 h-[22rem] w-[22rem] rounded-full bg-violet-500/12 blur-[120px]" />
+        <div className="animate-float-slow absolute top-1/3 -left-20 h-96 w-96 rounded-full bg-[var(--accent-cyan)]/10 blur-[130px] [animation-delay:-4s]" />
+        <div className="absolute bottom-0 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-violet-500/10 blur-[100px]" />
       </div>
 
       <div className="relative mx-auto max-w-5xl px-4 sm:px-6">
-        {/* Header */}
         <motion.header
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -570,37 +576,37 @@ export function MonthlyTargetsView() {
         >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[var(--accent-cyan)]/30 bg-[var(--accent-cyan)]/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-[var(--accent-cyan)]">
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-400/10 px-3 py-1 text-xs font-bold uppercase tracking-wider text-violet-300">
                 <Sparkles className="h-3.5 w-3.5" />
-                Monthly targets
+                Yearly plans
               </div>
               <h1 className="text-3xl font-extrabold tracking-tight text-gradient-cyan sm:text-4xl">
-                Your month at a glance
+                Your year at a glance
               </h1>
               <p className="mt-2 max-w-lg text-sm text-[var(--text-secondary)] sm:text-base">
-                Track your time goals and monthly milestones — like connecting with 100 doctors
-                for ZindagiCare.
+                Set annual goals, track milestones, and see how each month contributes to your
+                yearly vision.
               </p>
             </div>
 
             <div className="flex items-center gap-2 self-start rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]/70 p-1.5 backdrop-blur sm:self-auto">
               <button
                 type="button"
-                onClick={() => shiftMonth(-1)}
+                onClick={() => shiftYear(-1)}
                 className="touch-target rounded-xl p-2 text-[var(--text-secondary)] transition-colors hover:bg-white/10 hover:text-white"
-                aria-label="Previous month"
+                aria-label="Previous year"
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
-              <span className="min-w-[9rem] text-center text-sm font-bold text-white">
-                {monthLabel(year, monthIndex)}
+              <span className="min-w-[5rem] text-center text-sm font-bold text-white">
+                {viewYear}
               </span>
               <button
                 type="button"
-                onClick={() => shiftMonth(1)}
-                disabled={isCurrentMonth}
+                onClick={() => shiftYear(1)}
+                disabled={isCurrentYear}
                 className="touch-target rounded-xl p-2 text-[var(--text-secondary)] transition-colors hover:bg-white/10 hover:text-white disabled:opacity-30"
-                aria-label="Next month"
+                aria-label="Next year"
               >
                 <ChevronRight className="h-5 w-5" />
               </button>
@@ -616,7 +622,7 @@ export function MonthlyTargetsView() {
 
         {loading ? (
           <div className="flex min-h-[40vh] items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-cyan)]" />
+            <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
           </div>
         ) : (
           <>
@@ -629,28 +635,28 @@ export function MonthlyTargetsView() {
             >
               <div
                 aria-hidden
-                className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-[var(--accent-cyan)]/10 blur-3xl"
+                className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-violet-500/10 blur-3xl"
               />
               <div className="relative flex flex-col items-center gap-8 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex flex-col items-center lg:items-start">
-                  <ProgressRing pct={monthStats.pct} met={monthStats.met} />
+                  <ProgressRing pct={yearStats.pct} met={yearStats.met} />
                   <p className="mt-4 text-center text-sm text-[var(--text-secondary)] lg:text-left">
-                    {monthStats.met
-                      ? "🎉 Monthly target achieved — outstanding work!"
-                      : monthStats.goalSecs > 0
-                        ? `${formatDuration(monthStats.remainingSecs)} left to reach your goal`
-                        : "Set a monthly goal below to start tracking"}
+                    {yearStats.met
+                      ? "🎉 Yearly target achieved — incredible dedication!"
+                      : yearStats.goalSecs > 0
+                        ? `${formatDuration(yearStats.remainingSecs)} left to reach your goal`
+                        : "Set a yearly goal below to start tracking"}
                   </p>
                 </div>
 
                 <div className="w-full max-w-md space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
                     <div className="rounded-2xl border border-[var(--card-border)] bg-white/[0.03] p-4">
                       <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                         Logged
                       </p>
-                      <p className="mt-1 text-2xl font-extrabold tabular-nums text-white">
-                        {formatDuration(monthStats.totalSecs)}
+                      <p className="mt-1 text-xl font-extrabold tabular-nums text-white sm:text-2xl">
+                        {formatDuration(yearStats.totalSecs)}
                       </p>
                     </div>
                     <div className="rounded-2xl border border-[var(--card-border)] bg-white/[0.03] p-4">
@@ -660,55 +666,88 @@ export function MonthlyTargetsView() {
                       <button
                         type="button"
                         onClick={() => setEditingGoal(true)}
-                        className="mt-1 block text-left text-2xl font-extrabold tabular-nums text-white transition-colors hover:text-[var(--accent-cyan)]"
-                        title="Edit monthly target"
+                        className="mt-1 block text-left text-xl font-extrabold tabular-nums text-white transition-colors hover:text-violet-300 sm:text-2xl"
+                        title="Edit yearly target"
                       >
-                        {monthStats.goalMinutes > 0
-                          ? formatEstimate(monthStats.goalMinutes)
+                        {yearStats.goalMinutes > 0
+                          ? formatEstimate(yearStats.goalMinutes)
                           : "—"}
                       </button>
+                    </div>
+                    <div className="rounded-2xl border border-[var(--card-border)] bg-white/[0.03] p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                        Active days
+                      </p>
+                      <p className="mt-1 text-xl font-extrabold tabular-nums text-white sm:text-2xl">
+                        {yearStats.activeDays}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-[var(--card-border)] bg-white/[0.03] p-4">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
+                        Consistency
+                      </p>
+                      <p className="mt-1 text-xl font-extrabold tabular-nums text-white sm:text-2xl">
+                        {yearStats.consistencyPct}%
+                      </p>
                     </div>
                   </div>
 
                   <div
                     className="flex items-center gap-3 rounded-2xl border p-4"
                     style={{
-                      borderColor: `${monthStats.paceTint}40`,
-                      background: `${monthStats.paceTint}0d`,
+                      borderColor: `${yearStats.paceTint}40`,
+                      background: `${yearStats.paceTint}0d`,
                     }}
                   >
                     <span
                       className="inline-flex h-10 w-10 items-center justify-center rounded-xl border"
                       style={{
-                        color: monthStats.paceTint,
-                        borderColor: `${monthStats.paceTint}40`,
-                        background: `${monthStats.paceTint}14`,
+                        color: yearStats.paceTint,
+                        borderColor: `${yearStats.paceTint}40`,
+                        background: `${yearStats.paceTint}14`,
                       }}
                     >
-                      {monthStats.paceLabel === "Ahead of pace" ? (
+                      {yearStats.paceLabel === "Ahead of pace" ? (
                         <Zap className="h-5 w-5" />
-                      ) : monthStats.paceLabel === "On track" ? (
+                      ) : yearStats.paceLabel === "On track" ? (
                         <TrendingUp className="h-5 w-5" />
                       ) : (
                         <Flame className="h-5 w-5" />
                       )}
                     </span>
                     <div>
-                      <p className="text-sm font-bold text-white">{monthStats.paceLabel}</p>
+                      <p className="text-sm font-bold text-white">{yearStats.paceLabel}</p>
                       <p className="text-xs text-[var(--text-secondary)]">
-                        {monthStats.activeDays} active day
-                        {monthStats.activeDays === 1 ? "" : "s"}
-                        {isCurrentMonth && monthStats.daysLeft > 0
-                          ? ` · ${monthStats.daysLeft} day${monthStats.daysLeft === 1 ? "" : "s"} left`
+                        {yearStats.avgActiveDaySecs > 0
+                          ? `~${formatDuration(yearStats.avgActiveDaySecs)} per active day`
+                          : "Log time to build your streak"}
+                        {isCurrentYear && yearStats.daysLeft > 0
+                          ? ` · ${yearStats.daysLeft} day${yearStats.daysLeft === 1 ? "" : "s"} left`
                           : ""}
                       </p>
                     </div>
                   </div>
+
+                  {yearStats.bestMonth.totalSecs > 0 ? (
+                    <div className="flex items-center gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4">
+                      <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-amber-400/35 bg-amber-400/10 text-amber-300">
+                        <Trophy className="h-5 w-5" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          Best month: {yearStats.bestMonth.month}
+                        </p>
+                        <p className="text-xs text-[var(--text-secondary)]">
+                          {formatDuration(yearStats.bestMonth.totalSecs)} logged
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </motion.section>
 
-            {/* Achievement milestones */}
+            {/* Yearly milestones */}
             <motion.section
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
@@ -719,10 +758,11 @@ export function MonthlyTargetsView() {
                 <div>
                   <h2 className="flex items-center gap-2 text-base font-bold text-white sm:text-lg">
                     <Flag className="h-5 w-5 text-violet-400" />
-                    Monthly milestones
+                    Yearly milestones
                   </h2>
                   <p className="mt-1 text-xs text-[var(--text-secondary)] sm:text-sm">
-                    Goals to hit this month — outreach, sales, content, or anything measurable.
+                    Big goals for {viewYear} — launches, revenue targets, fitness achievements, or
+                    spiritual milestones.
                   </p>
                 </div>
                 {achievementSummary.total > 0 ? (
@@ -733,15 +773,16 @@ export function MonthlyTargetsView() {
                 ) : null}
               </div>
 
-              {monthAchievementTargets.length > 0 ? (
+              {yearAchievementTargets.length > 0 ? (
                 <ul className="mb-5 space-y-3">
-                  {monthAchievementTargets.map((target) => (
+                  {yearAchievementTargets.map((target) => (
                     <li key={target.id}>
                       <MilestoneTargetCard
                         target={target}
                         busy={busy}
-                        periodLabel="this month"
-                        accent="cyan"
+                        periodLabel="this year"
+                        accent="violet"
+                        extraBumpValues={[50]}
                         onUpdateCount={(count) => void updateAchievementCount(target.id, count)}
                         onUpdateDetails={(details) =>
                           void updateAchievementDetails(target.id, details)
@@ -754,22 +795,23 @@ export function MonthlyTargetsView() {
               ) : (
                 <div className="mb-5 rounded-2xl border border-dashed border-[var(--card-border)] bg-white/[0.02] px-4 py-8 text-center">
                   <Flag className="mx-auto mb-3 h-8 w-8 text-violet-400/60" />
-                  <p className="text-sm font-semibold text-white">No milestones yet</p>
+                  <p className="text-sm font-semibold text-white">No yearly milestones yet</p>
                   <p className="mt-1 text-xs text-[var(--text-secondary)]">
-                    Add a target like &ldquo;Connect with 100 doctors for ZindagiCare&rdquo;
+                    Add a target like &ldquo;Launch 2 products&rdquo; or &ldquo;Read Quran cover to
+                    cover&rdquo;
                   </p>
                 </div>
               )}
 
               {showAddTarget ? (
                 <div className="rounded-2xl border border-violet-400/25 bg-violet-500/[0.06] p-4 sm:p-5">
-                  <p className="mb-3 text-sm font-bold text-white">New milestone</p>
+                  <p className="mb-3 text-sm font-bold text-white">New yearly milestone</p>
                   <div className="space-y-3">
                     <input
                       type="text"
                       value={newTargetTitle}
                       onChange={(e) => setNewTargetTitle(e.target.value)}
-                      placeholder="e.g. Surat Al Baqara complete"
+                      placeholder="e.g. Reach 500 client meetings"
                       maxLength={200}
                       className={inputClass}
                     />
@@ -791,10 +833,7 @@ export function MonthlyTargetsView() {
                               }`}
                               style={
                                 active
-                                  ? {
-                                      background: colors.color,
-                                      borderColor: colors.border,
-                                    }
+                                  ? { background: colors.color, borderColor: colors.border }
                                   : {
                                       borderColor: colors.border,
                                       background: colors.softBg,
@@ -818,7 +857,7 @@ export function MonthlyTargetsView() {
                           min={1}
                           value={newTargetCount}
                           onChange={(e) => setNewTargetCount(e.target.value)}
-                          placeholder="100"
+                          placeholder="500"
                           className={inputClass}
                         />
                       </div>
@@ -830,15 +869,15 @@ export function MonthlyTargetsView() {
                           type="text"
                           value={newTargetUnit}
                           onChange={(e) => setNewTargetUnit(e.target.value)}
-                          placeholder="doctors"
+                          placeholder="meetings"
                           maxLength={40}
                           className={inputClass}
                         />
                       </div>
                     </div>
                     <p className="text-[11px] text-[var(--text-secondary)]">
-                      Leave target number empty for one-off goals — use &ldquo;Mark complete&rdquo; when
-                      finished.
+                      Leave target number empty for one-off goals — use &ldquo;Mark complete&rdquo;
+                      when finished.
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -866,12 +905,12 @@ export function MonthlyTargetsView() {
                   className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-violet-400/35 bg-violet-400/[0.04] py-4 text-sm font-bold text-violet-300 transition-colors hover:border-violet-400/55 hover:bg-violet-400/[0.08]"
                 >
                   <Plus className="h-4 w-4" />
-                  Add a milestone for {monthLabel(year, monthIndex)}
+                  Add a milestone for {viewYear}
                 </button>
               )}
             </motion.section>
 
-            {/* Breakdown */}
+            {/* Area breakdown */}
             <motion.section
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
@@ -881,26 +920,26 @@ export function MonthlyTargetsView() {
               {[
                 {
                   label: "Work",
-                  secs: monthStats.workSecs,
+                  secs: yearStats.workSecs,
                   Icon: Briefcase,
                   tint: WORK_LOG_AREA_COLORS.work.color,
                 },
                 {
                   label: "Deen",
-                  secs: monthStats.deenSecs,
+                  secs: yearStats.deenSecs,
                   Icon: Moon,
                   tint: WORK_LOG_AREA_COLORS.deen.color,
                 },
                 {
                   label: "Fitness",
-                  secs: monthStats.fitnessSecs,
+                  secs: yearStats.fitnessSecs,
                   Icon: Dumbbell,
                   tint: WORK_LOG_AREA_COLORS.fitness.color,
                 },
               ].map(({ label, secs, Icon, tint }, i) => {
                 const share =
-                  monthStats.totalSecs > 0
-                    ? Math.round((secs / monthStats.totalSecs) * 100)
+                  yearStats.totalSecs > 0
+                    ? Math.round((secs / yearStats.totalSecs) * 100)
                     : 0;
                 return (
                   <motion.div
@@ -935,13 +974,64 @@ export function MonthlyTargetsView() {
                         }}
                       />
                     </div>
-                    <p className="mt-2 text-xs text-[var(--text-secondary)]">{share}% of month</p>
+                    <p className="mt-2 text-xs text-[var(--text-secondary)]">{share}% of year</p>
                   </motion.div>
                 );
               })}
             </motion.section>
 
-            {/* Daily chart + calendar */}
+            {/* Quarterly breakdown */}
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.12 }}
+              className="glass-card mb-6 rounded-2xl p-5 sm:p-6"
+            >
+              <h2 className="mb-1 flex items-center gap-2 text-sm font-bold text-white">
+                <CalendarRange className="h-4 w-4 text-violet-400" />
+                Quarterly breakdown
+              </h2>
+              <p className="mb-4 text-xs text-[var(--text-secondary)]">
+                How each quarter contributes to your yearly total
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {yearStats.quarterlyData.map((q, i) => {
+                  const share =
+                    yearStats.totalSecs > 0
+                      ? Math.round((q.secs / yearStats.totalSecs) * 100)
+                      : 0;
+                  const qGoal = yearStats.goalSecs > 0 ? yearStats.goalSecs / 4 : 0;
+                  const qPct = qGoal > 0 ? Math.min(100, Math.round((q.secs / qGoal) * 100)) : 0;
+                  return (
+                    <div
+                      key={q.label}
+                      className="rounded-2xl border border-[var(--card-border)] bg-white/[0.03] p-4"
+                    >
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-sm font-bold text-white">{q.label}</span>
+                        <span className="text-[10px] text-[var(--text-secondary)]">{q.months}</span>
+                      </div>
+                      <p className="text-xl font-extrabold tabular-nums text-white">
+                        {formatDuration(q.secs)}
+                      </p>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10">
+                        <motion.div
+                          initial={{ width: 0 }}
+                          animate={{ width: `${qPct}%` }}
+                          transition={{ delay: 0.15 + i * 0.05, duration: 0.8 }}
+                          className="h-full rounded-full bg-gradient-to-r from-violet-500 to-[var(--accent-cyan)]"
+                        />
+                      </div>
+                      <p className="mt-2 text-xs text-[var(--text-secondary)]">
+                        {share}% of year{qGoal > 0 ? ` · ${qPct}% of quarter goal` : ""}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.section>
+
+            {/* Monthly chart + grid */}
             <div className="mb-6 grid gap-6 lg:grid-cols-5">
               <motion.section
                 initial={{ opacity: 0, y: 16 }}
@@ -950,22 +1040,28 @@ export function MonthlyTargetsView() {
                 className="glass-card rounded-2xl p-5 lg:col-span-2"
               >
                 <h2 className="mb-1 flex items-center gap-2 text-sm font-bold text-white">
-                  <CalendarDays className="h-4 w-4 text-[var(--accent-cyan)]" />
-                  Daily activity
+                  <TrendingUp className="h-4 w-4 text-violet-400" />
+                  Monthly activity
                 </h2>
                 <p className="mb-4 text-xs text-[var(--text-secondary)]">
-                  Hours logged each day this month
+                  Hours logged each month in {viewYear}
                 </p>
                 <div className="h-52 w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monthStats.dailyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <BarChart
+                      data={yearStats.monthlyData}
+                      margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+                    >
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="rgba(255,255,255,0.06)"
+                        vertical={false}
+                      />
                       <XAxis
-                        dataKey="day"
+                        dataKey="month"
                         tick={{ fill: "#888", fontSize: 10 }}
                         axisLine={false}
                         tickLine={false}
-                        interval="preserveStartEnd"
                       />
                       <YAxis
                         tick={{ fill: "#888", fontSize: 10 }}
@@ -980,19 +1076,18 @@ export function MonthlyTargetsView() {
                           borderRadius: 12,
                           fontSize: 12,
                         }}
-                        labelFormatter={(d) => `Day ${d}`}
                         formatter={(v: number) => [`${v}h`, "Total"]}
                       />
                       <Bar
                         dataKey="total"
-                        fill="url(#barGrad)"
+                        fill="url(#yearBarGrad)"
                         radius={[4, 4, 0, 0]}
-                        maxBarSize={18}
+                        maxBarSize={24}
                       />
                       <defs>
-                        <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--accent-cyan)" />
-                          <stop offset="100%" stopColor="var(--accent-cyan-2)" stopOpacity={0.6} />
+                        <linearGradient id="yearBarGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#a78bfa" />
+                          <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity={0.6} />
                         </linearGradient>
                       </defs>
                     </BarChart>
@@ -1007,37 +1102,30 @@ export function MonthlyTargetsView() {
                 className="glass-card rounded-2xl p-5 lg:col-span-3"
               >
                 <h2 className="mb-1 flex items-center gap-2 text-sm font-bold text-white">
-                  <Target className="h-4 w-4 text-[var(--accent-cyan)]" />
-                  Activity heatmap
+                  <Target className="h-4 w-4 text-violet-400" />
+                  Month overview
                 </h2>
                 <p className="mb-4 text-xs text-[var(--text-secondary)]">
-                  Brighter cells mean more time logged — today is highlighted
+                  Brighter months mean more time logged — current month is highlighted
                 </p>
-                <div className="mb-2 grid grid-cols-7 gap-1 text-center">
-                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((wd) => (
-                    <span
-                      key={wd}
-                      className="text-[10px] font-bold uppercase tracking-wide text-[var(--text-secondary)]"
-                    >
-                      {wd}
-                    </span>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
-                  {monthStats.calendarCells.map((cell, i) =>
-                    cell.type === "pad" ? (
-                      <div key={`pad-${i}`} className="aspect-square" />
-                    ) : (
-                      <HeatCell
-                        key={cell.day}
-                        day={cell.day}
-                        totalSecs={cell.totalSecs}
-                        goalDaySecs={monthStats.dailyGoalSecs}
-                        isToday={cell.isToday}
-                        isFuture={cell.isFuture}
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3">
+                  {yearStats.monthlyData.map((m) => {
+                    const isFuture =
+                      isCurrentYear && m.monthIndex > yearStats.currentMonthIndex;
+                    const isCurrentMonth =
+                      isCurrentYear && m.monthIndex === yearStats.currentMonthIndex;
+                    return (
+                      <MonthCell
+                        key={m.month}
+                        monthIndex={m.monthIndex}
+                        year={viewYear}
+                        totalSecs={m.totalSecs}
+                        goalMonthSecs={yearStats.goalMonthSecs}
+                        isCurrentMonth={isCurrentMonth}
+                        isFuture={isFuture}
                       />
-                    )
-                  )}
+                    );
+                  })}
                 </div>
               </motion.section>
             </div>
@@ -1052,14 +1140,14 @@ export function MonthlyTargetsView() {
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="flex items-center gap-2 text-sm font-bold text-white">
-                    <Target className="h-4 w-4 text-[var(--accent-cyan)]" />
-                    Monthly time target
+                    <Target className="h-4 w-4 text-violet-400" />
+                    Yearly time target
                   </h2>
                   <p className="mt-1 max-w-md text-xs text-[var(--text-secondary)]">
-                    Work, deen, and fitness combined for {monthLabel(year, monthIndex)}. Saved
-                    per month — other months keep their own targets.
-                    {!hasPeriodGoalOverride && monthStats.goalMinutes > 0
-                      ? " Currently using your default monthly goal."
+                    Work, deen, and fitness combined for {viewYear}. Saved per year — other years
+                    keep their own targets.
+                    {!hasPeriodGoalOverride && yearStats.goalMinutes > 0
+                      ? " Currently using your default yearly goal."
                       : ""}
                   </p>
                 </div>
@@ -1067,7 +1155,7 @@ export function MonthlyTargetsView() {
                   <button
                     type="button"
                     onClick={() => setEditingGoal(true)}
-                    className="shrink-0 rounded-xl border border-[var(--accent-cyan)]/40 px-4 py-2.5 text-sm font-semibold text-[var(--accent-cyan)] transition-colors hover:bg-[var(--accent-cyan)]/10"
+                    className="shrink-0 rounded-xl border border-violet-400/40 px-4 py-2.5 text-sm font-semibold text-violet-300 transition-colors hover:bg-violet-400/10"
                   >
                     Edit target
                   </button>
@@ -1076,12 +1164,12 @@ export function MonthlyTargetsView() {
 
               {editingGoal ? (
                 <div className="mt-5 flex flex-wrap items-end gap-3">
-                  <div className="w-20">
+                  <div className="w-24">
                     <label className="text-xs text-[var(--text-secondary)]">Hours</label>
                     <input
                       type="number"
                       min={0}
-                      max={744}
+                      max={8784}
                       value={goalHours}
                       onChange={(e) => setGoalHours(e.target.value)}
                       className={inputClass}
@@ -1102,7 +1190,7 @@ export function MonthlyTargetsView() {
                     type="button"
                     disabled={busy}
                     onClick={() => void patchGoal()}
-                    className="rounded-xl bg-gradient-to-r from-[var(--accent-cyan)] to-[var(--accent-cyan-2)] px-5 py-2.5 text-sm font-bold text-[#070d0d] shadow-[0_0_20px_-4px_var(--accent-cyan-glow)] disabled:opacity-50"
+                    className="rounded-xl bg-gradient-to-r from-violet-500 to-[var(--accent-cyan)] px-5 py-2.5 text-sm font-bold text-[#070d0d] shadow-[0_0_20px_-4px_rgba(167,139,250,0.4)] disabled:opacity-50"
                   >
                     {busy ? "Saving…" : "Save target"}
                   </button>
@@ -1116,11 +1204,11 @@ export function MonthlyTargetsView() {
                 </div>
               ) : (
                 <p className="mt-4 text-3xl font-extrabold tabular-nums text-gradient-cyan">
-                  {monthStats.goalMinutes > 0
-                    ? formatEstimate(monthStats.goalMinutes)
+                  {yearStats.goalMinutes > 0
+                    ? formatEstimate(yearStats.goalMinutes)
                     : "Not set"}
                   <span className="ml-2 text-base font-medium text-[var(--text-secondary)]">
-                    for {monthLabel(year, monthIndex)}
+                    in {viewYear}
                   </span>
                 </p>
               )}

@@ -57,6 +57,18 @@ export type MonthlyAchievementTarget = {
   category: MonthlyMilestoneCategory;
 };
 
+/** Numeric milestone for a calendar year, e.g. "Launch 3 products". */
+export type YearlyAchievementTarget = {
+  id: string;
+  /** "YYYY" */
+  yearKey: string;
+  title: string;
+  targetCount: number;
+  currentCount: number;
+  unit: string;
+  category: MonthlyMilestoneCategory;
+};
+
 export type UserWorkLogSettingsDoc = {
   userId: string;
   people: WorkLogPerson[];
@@ -66,13 +78,40 @@ export type UserWorkLogSettingsDoc = {
   /** Combined monthly target in minutes (0 = derive from daily goal × days in month). */
   monthlyGoalMinutes: number;
   monthlyAchievementTargets: MonthlyAchievementTarget[];
+  /** Combined yearly target in minutes (0 = derive from monthly × 12 or daily × days in year). */
+  yearlyGoalMinutes: number;
+  yearlyAchievementTargets: YearlyAchievementTarget[];
+  /** Per-month time goal overrides keyed by "YYYY-MM". */
+  monthlyGoalOverrides: MonthlyGoalOverride[];
+  /** Per-year time goal overrides keyed by "YYYY". */
+  yearlyGoalOverrides: YearlyGoalOverride[];
   createdAt: Date;
   updatedAt: Date;
+};
+
+export type MonthlyGoalOverride = {
+  monthKey: string;
+  minutes: number;
+};
+
+export type YearlyGoalOverride = {
+  yearKey: string;
+  minutes: number;
 };
 
 export type SerializedMonthlyAchievementTarget = {
   id: string;
   monthKey: string;
+  title: string;
+  targetCount: number;
+  currentCount: number;
+  unit: string;
+  category: MonthlyMilestoneCategory;
+};
+
+export type SerializedYearlyAchievementTarget = {
+  id: string;
+  yearKey: string;
   title: string;
   targetCount: number;
   currentCount: number;
@@ -97,6 +136,10 @@ export type SerializedWorkLogSettings = {
   dailyGoalMinutes: number;
   monthlyGoalMinutes: number;
   monthlyAchievementTargets: SerializedMonthlyAchievementTarget[];
+  yearlyGoalMinutes: number;
+  yearlyAchievementTargets: SerializedYearlyAchievementTarget[];
+  monthlyGoalOverrides: MonthlyGoalOverride[];
+  yearlyGoalOverrides: YearlyGoalOverride[];
 };
 
 export type SerializedWorkLogTaskTemplate = {
@@ -152,6 +195,20 @@ function serializeAchievementTarget(
   };
 }
 
+function serializeYearlyAchievementTarget(
+  t: YearlyAchievementTarget
+): SerializedYearlyAchievementTarget {
+  return {
+    id: t.id,
+    yearKey: /^\d{4}$/.test(t.yearKey) ? t.yearKey : "",
+    title: (t.title ?? "").trim().slice(0, 200),
+    targetCount: Math.max(0, Math.round(t.targetCount ?? 0)),
+    currentCount: Math.max(0, Math.round(t.currentCount ?? 0)),
+    unit: (t.unit ?? "").trim().slice(0, 40),
+    category: normalizeMilestoneCategory(t.category),
+  };
+}
+
 export function serializeWorkLogSettings(doc: UserWorkLogSettingsDoc): SerializedWorkLogSettings {
   return {
     people: doc.people ?? [],
@@ -161,6 +218,22 @@ export function serializeWorkLogSettings(doc: UserWorkLogSettingsDoc): Serialize
     monthlyAchievementTargets: (doc.monthlyAchievementTargets ?? [])
       .map(serializeAchievementTarget)
       .filter((t) => t.monthKey && t.title),
+    yearlyGoalMinutes: Math.max(0, doc.yearlyGoalMinutes ?? 0),
+    yearlyAchievementTargets: (doc.yearlyAchievementTargets ?? [])
+      .map(serializeYearlyAchievementTarget)
+      .filter((t) => t.yearKey && t.title),
+    monthlyGoalOverrides: (doc.monthlyGoalOverrides ?? [])
+      .filter((o) => /^\d{4}-\d{2}$/.test(o.monthKey))
+      .map((o) => ({
+        monthKey: o.monthKey,
+        minutes: Math.max(0, Math.round(o.minutes ?? 0)),
+      })),
+    yearlyGoalOverrides: (doc.yearlyGoalOverrides ?? [])
+      .filter((o) => /^\d{4}$/.test(o.yearKey))
+      .map((o) => ({
+        yearKey: o.yearKey,
+        minutes: Math.max(0, Math.round(o.minutes ?? 0)),
+      })),
   };
 }
 
@@ -171,20 +244,75 @@ export function achievementTargetsForMonth(
   return (settings.monthlyAchievementTargets ?? []).filter((t) => t.monthKey === monthKey);
 }
 
+export function achievementTargetsForYear(
+  settings: Pick<SerializedWorkLogSettings, "yearlyAchievementTargets">,
+  yearKey: string
+): SerializedYearlyAchievementTarget[] {
+  return (settings.yearlyAchievementTargets ?? []).filter((t) => t.yearKey === yearKey);
+}
+
 export function daysInCalendarMonth(year: number, monthIndex: number): number {
   return new Date(year, monthIndex + 1, 0).getDate();
 }
 
-/** Effective monthly target: explicit setting or daily goal × days in month. */
+export function daysInCalendarYear(year: number): number {
+  return (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) ? 366 : 365;
+}
+
+export function dayOfYear(date: Date): number {
+  const start = new Date(date.getFullYear(), 0, 0);
+  const diff = date.getTime() - start.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+/** Effective monthly target: per-month override, global setting, or daily goal × days in month. */
 export function effectiveMonthlyGoalMinutes(
-  settings: Pick<SerializedWorkLogSettings, "dailyGoalMinutes" | "monthlyGoalMinutes">,
+  settings: Pick<
+    SerializedWorkLogSettings,
+    "dailyGoalMinutes" | "monthlyGoalMinutes" | "monthlyGoalOverrides"
+  >,
   year: number,
   monthIndex: number
 ): number {
+  const monthKey = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+  const override = (settings.monthlyGoalOverrides ?? []).find((o) => o.monthKey === monthKey);
+  if (override) return override.minutes;
   if (settings.monthlyGoalMinutes > 0) return settings.monthlyGoalMinutes;
   const daily = settings.dailyGoalMinutes;
   if (daily <= 0) return 0;
   return daily * daysInCalendarMonth(year, monthIndex);
+}
+
+/** Effective yearly target: per-year override, global setting, monthly × 12, or daily × days in year. */
+export function effectiveYearlyGoalMinutes(
+  settings: Pick<
+    SerializedWorkLogSettings,
+    "dailyGoalMinutes" | "monthlyGoalMinutes" | "yearlyGoalMinutes" | "yearlyGoalOverrides"
+  >,
+  year: number
+): number {
+  const yearKey = String(year);
+  const override = (settings.yearlyGoalOverrides ?? []).find((o) => o.yearKey === yearKey);
+  if (override) return override.minutes;
+  if (settings.yearlyGoalMinutes > 0) return settings.yearlyGoalMinutes;
+  if (settings.monthlyGoalMinutes > 0) return settings.monthlyGoalMinutes * 12;
+  const daily = settings.dailyGoalMinutes;
+  if (daily <= 0) return 0;
+  return daily * daysInCalendarYear(year);
+}
+
+export function hasMonthlyGoalOverride(
+  settings: Pick<SerializedWorkLogSettings, "monthlyGoalOverrides">,
+  monthKey: string
+): boolean {
+  return (settings.monthlyGoalOverrides ?? []).some((o) => o.monthKey === monthKey);
+}
+
+export function hasYearlyGoalOverride(
+  settings: Pick<SerializedWorkLogSettings, "yearlyGoalOverrides">,
+  yearKey: string
+): boolean {
+  return (settings.yearlyGoalOverrides ?? []).some((o) => o.yearKey === yearKey);
 }
 
 export async function getOrCreateUserWorkLogSettings(
@@ -212,6 +340,10 @@ export async function getOrCreateUserWorkLogSettings(
         dailyGoalMinutes: 480,
         monthlyGoalMinutes: 10560,
         monthlyAchievementTargets: [],
+        yearlyGoalMinutes: 126720,
+        yearlyAchievementTargets: [],
+        monthlyGoalOverrides: [],
+        yearlyGoalOverrides: [],
         createdAt: now,
         updatedAt: now,
       },
@@ -226,6 +358,10 @@ export async function getOrCreateUserWorkLogSettings(
       dailyGoalMinutes: 480,
       monthlyGoalMinutes: 10560,
       monthlyAchievementTargets: [],
+      yearlyGoalMinutes: 126720,
+      yearlyAchievementTargets: [],
+      monthlyGoalOverrides: [],
+      yearlyGoalOverrides: [],
     };
   }
 
@@ -272,6 +408,7 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("setMonthlyGoal"),
     minutes: z.coerce.number().int().min(0).max(744 * 60),
+    monthKey: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   }),
   z.object({
     action: z.literal("addMonthlyAchievementTarget"),
@@ -292,6 +429,32 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("deleteMonthlyAchievementTarget"),
+    targetId: z.string().min(1),
+  }),
+  z.object({
+    action: z.literal("setYearlyGoal"),
+    minutes: z.coerce.number().int().min(0).max(8784 * 60),
+    yearKey: z.string().regex(/^\d{4}$/).optional(),
+  }),
+  z.object({
+    action: z.literal("addYearlyAchievementTarget"),
+    yearKey: z.string().regex(/^\d{4}$/),
+    title: z.string().trim().min(1).max(200),
+    targetCount: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    unit: z.string().trim().max(40).optional(),
+    category: z.enum(MONTHLY_MILESTONE_CATEGORIES).optional(),
+  }),
+  z.object({
+    action: z.literal("updateYearlyAchievementTarget"),
+    targetId: z.string().min(1),
+    title: z.string().trim().min(1).max(200).optional(),
+    targetCount: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    currentCount: z.coerce.number().int().min(0).max(1_000_000).optional(),
+    unit: z.string().trim().max(40).optional(),
+    category: z.enum(MONTHLY_MILESTONE_CATEGORIES).optional(),
+  }),
+  z.object({
+    action: z.literal("deleteYearlyAchievementTarget"),
     targetId: z.string().min(1),
   }),
 ]);
@@ -397,10 +560,23 @@ export async function applyWorkLogSettingsAction(
       break;
     }
     case "setMonthlyGoal": {
-      await coll.updateOne(
-        { userId },
-        { $set: { monthlyGoalMinutes: body.minutes, updatedAt: now } }
-      );
+      if (body.monthKey) {
+        const doc = await coll.findOne({ userId });
+        const overrides = [...(doc?.monthlyGoalOverrides ?? [])];
+        const idx = overrides.findIndex((o) => o.monthKey === body.monthKey);
+        const entry: MonthlyGoalOverride = { monthKey: body.monthKey, minutes: body.minutes };
+        if (idx >= 0) overrides[idx] = entry;
+        else overrides.push(entry);
+        await coll.updateOne(
+          { userId },
+          { $set: { monthlyGoalOverrides: overrides, updatedAt: now } }
+        );
+      } else {
+        await coll.updateOne(
+          { userId },
+          { $set: { monthlyGoalMinutes: body.minutes, updatedAt: now } }
+        );
+      }
       break;
     }
     case "addMonthlyAchievementTarget": {
@@ -447,6 +623,76 @@ export async function applyWorkLogSettingsAction(
         { userId },
         {
           $pull: { monthlyAchievementTargets: { id: body.targetId } },
+          $set: { updatedAt: now },
+        }
+      );
+      if (result.modifiedCount === 0) throw new Error("Target not found");
+      break;
+    }
+    case "setYearlyGoal": {
+      if (body.yearKey) {
+        const doc = await coll.findOne({ userId });
+        const overrides = [...(doc?.yearlyGoalOverrides ?? [])];
+        const idx = overrides.findIndex((o) => o.yearKey === body.yearKey);
+        const entry: YearlyGoalOverride = { yearKey: body.yearKey, minutes: body.minutes };
+        if (idx >= 0) overrides[idx] = entry;
+        else overrides.push(entry);
+        await coll.updateOne(
+          { userId },
+          { $set: { yearlyGoalOverrides: overrides, updatedAt: now } }
+        );
+      } else {
+        await coll.updateOne(
+          { userId },
+          { $set: { yearlyGoalMinutes: body.minutes, updatedAt: now } }
+        );
+      }
+      break;
+    }
+    case "addYearlyAchievementTarget": {
+      const target: YearlyAchievementTarget = {
+        id: randomUUID(),
+        yearKey: body.yearKey,
+        title: body.title,
+        targetCount: body.targetCount ?? 0,
+        currentCount: 0,
+        unit: body.unit?.trim() ?? "",
+        category: normalizeMilestoneCategory(body.category),
+      };
+      await coll.updateOne(
+        { userId },
+        { $push: { yearlyAchievementTargets: target }, $set: { updatedAt: now } }
+      );
+      break;
+    }
+    case "updateYearlyAchievementTarget": {
+      const doc = await coll.findOne({ userId });
+      const targets = doc?.yearlyAchievementTargets ?? [];
+      const idx = targets.findIndex((t) => t.id === body.targetId);
+      if (idx < 0) throw new Error("Target not found");
+      const current = targets[idx];
+      const updated: YearlyAchievementTarget = {
+        ...current,
+        title: body.title ?? current.title,
+        targetCount: body.targetCount ?? current.targetCount,
+        currentCount: body.currentCount ?? current.currentCount,
+        unit: body.unit !== undefined ? body.unit.trim() : current.unit,
+        category:
+          body.category !== undefined
+            ? normalizeMilestoneCategory(body.category)
+            : normalizeMilestoneCategory(current.category),
+      };
+      await coll.updateOne(
+        { userId },
+        { $set: { [`yearlyAchievementTargets.${idx}`]: updated, updatedAt: now } }
+      );
+      break;
+    }
+    case "deleteYearlyAchievementTarget": {
+      const result = await coll.updateOne(
+        { userId },
+        {
+          $pull: { yearlyAchievementTargets: { id: body.targetId } },
           $set: { updatedAt: now },
         }
       );

@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   BarChart3,
   CalendarDays,
+  CalendarRange,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -1557,7 +1558,7 @@ export function WorkLogDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08 }}
-          className="mb-5 sm:mb-6"
+          className="mb-5 grid gap-3 sm:mb-6 sm:grid-cols-2 sm:gap-4"
         >
           <Link
             href="/monthly-targets"
@@ -1570,6 +1571,23 @@ export function WorkLogDashboard({
               <p className="text-sm font-bold text-white sm:text-base">Monthly targets</p>
               <p className="text-xs text-[var(--text-secondary)] sm:text-sm">
                 Set a goal, track your pace, and see your activity heatmap
+              </p>
+            </div>
+            <span className="hidden text-sm font-semibold text-[var(--accent-cyan)] sm:inline group-hover:underline">
+              Open →
+            </span>
+          </Link>
+          <Link
+            href="/yearly-targets"
+            className="group flex items-center gap-4 rounded-2xl border border-violet-400/25 bg-gradient-to-r from-violet-500/10 via-[var(--accent-cyan)]/5 to-transparent p-4 transition-all hover:border-violet-400/45 hover:shadow-[0_0_40px_-12px_rgba(167,139,250,0.4)] sm:p-5"
+          >
+            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-violet-400/35 bg-violet-400/10 text-violet-300 transition-transform group-hover:scale-105">
+              <CalendarRange className="h-6 w-6" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-white sm:text-base">Yearly plans</p>
+              <p className="text-xs text-[var(--text-secondary)] sm:text-sm">
+                Annual goals, quarterly breakdown, and month-by-month progress
               </p>
             </div>
             <span className="hidden text-sm font-semibold text-[var(--accent-cyan)] sm:inline group-hover:underline">

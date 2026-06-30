@@ -8,6 +8,7 @@ import {
   normalizeWorklogEmail,
   worklogAccountsCollection,
 } from "@/lib/worklog-accounts";
+import { accountUsesGoogleOnly } from "@/lib/worklog-google-auth";
 import {
   signWorklogSession,
   worklogSessionCookieOptions,
@@ -72,7 +73,18 @@ export async function POST(request: NextRequest) {
       { status: 401 }
     );
 
-    if (!account || typeof account.passwordHash !== "string") {
+    if (!account) {
+      return genericError;
+    }
+
+    if (accountUsesGoogleOnly(account)) {
+      return NextResponse.json(
+        { error: "This account uses Google sign-in. Continue with Google instead." },
+        { status: 401 }
+      );
+    }
+
+    if (typeof account.passwordHash !== "string") {
       return genericError;
     }
 
