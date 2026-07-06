@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -20,7 +20,10 @@ import { useOfflineSync } from "@/hooks/useOfflineSync";
 export function WorkLogManageView() {
   const router = useRouter();
   const { ready, isAuthenticated, user } = useWorkLogSessionGate();
-  const authorizedInit = workLogAuthorizedInit();
+  const authorizedInit = useCallback(
+    (init?: RequestInit) => workLogAuthorizedInit(init),
+    []
+  );
 
   const [settings, setSettings] = useState<WorkLogSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,10 +44,13 @@ export function WorkLogManageView() {
     });
   }, [loading, settings]);
 
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
   const load = useCallback(async () => {
     if (!user?.id) return;
     setErrorMsg(null);
-    setLoading(true);
+    if (!settingsRef.current) setLoading(true);
     try {
       const result = await fetchWorkLogSettings("/api/work-log/settings", user.id, authorizedInit);
       if (result.ok && result.data?.settings) {
@@ -64,7 +70,11 @@ export function WorkLogManageView() {
     if (user?.id) void load();
   }, [load, user?.id]);
 
-  useOfflineSync({ authorizedInit, onSynced: () => void load() });
+  const handleSynced = useCallback(() => {
+    void load();
+  }, [load]);
+
+  useOfflineSync({ authorizedInit, onSynced: handleSynced });
 
   const patchSettings = async (body: Record<string, unknown>) => {
     if (!user?.id) return false;
