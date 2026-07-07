@@ -80,6 +80,10 @@ export function validateTimeAdjustment(opts: {
     return { ok: false, error: "Enter a duration to add or remove.", minutes: 0 };
   }
 
+  if (mode === "add" && sign < 0 && currentMinutes === 0) {
+    return { ok: false, error: "No time logged to remove.", minutes: 0 };
+  }
+
   const projectedTotal = projectedTotalMinutes({ mode, currentMinutes, h, m, sign });
   if (projectedTotal > MAX_DAILY_MINUTES) {
     return {

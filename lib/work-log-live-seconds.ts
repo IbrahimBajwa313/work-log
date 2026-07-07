@@ -1,30 +1,54 @@
 import type { SerializedWorkLogDay } from "@/lib/admin-work-log";
+import { liveTimerElapsedSeconds } from "@/lib/work-log-timer-rollover";
 
-export function liveSeconds(day: SerializedWorkLogDay | undefined, nowMs: number): number {
+function liveSecondsForField(
+  day: SerializedWorkLogDay | undefined,
+  nowMs: number,
+  minutesKey: "totalMinutes" | "deenMinutes" | "fitnessMinutes",
+  startedAtKey: "timerStartedAt" | "deenTimerStartedAt" | "fitnessTimerStartedAt",
+  viewDateKey?: string
+): number {
   if (!day) return 0;
-  let secs = (day.totalMinutes ?? 0) * 60;
-  if (day.timerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.timerStartedAt).getTime()) / 1000);
+  const dayKey = day.dateKey;
+  const viewKey = viewDateKey ?? dayKey;
+  const startedAt = day[startedAtKey];
+
+  if (startedAt && viewKey !== dayKey) {
+    if (viewKey > dayKey) {
+      return liveTimerElapsedSeconds(startedAt, nowMs, viewKey);
+    }
+    return Math.floor((day[minutesKey] ?? 0) * 60);
+  }
+
+  let secs = (day[minutesKey] ?? 0) * 60;
+  if (startedAt) {
+    secs += liveTimerElapsedSeconds(startedAt, nowMs, viewKey);
   }
   return Math.floor(secs);
 }
 
-export function deenLiveSeconds(day: SerializedWorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = (day.deenMinutes ?? 0) * 60;
-  if (day.deenTimerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.deenTimerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
+export function liveSeconds(
+  day: SerializedWorkLogDay | undefined,
+  nowMs: number,
+  viewDateKey?: string
+): number {
+  return liveSecondsForField(day, nowMs, "totalMinutes", "timerStartedAt", viewDateKey);
 }
 
-export function fitnessLiveSeconds(day: SerializedWorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = (day.fitnessMinutes ?? 0) * 60;
-  if (day.fitnessTimerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.fitnessTimerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
+export function deenLiveSeconds(
+  day: SerializedWorkLogDay | undefined,
+  nowMs: number,
+  viewDateKey?: string
+): number {
+  return liveSecondsForField(day, nowMs, "deenMinutes", "deenTimerStartedAt", viewDateKey);
+}
+
+export function fitnessLiveSeconds(
+  day: SerializedWorkLogDay | undefined,
+  nowMs: number,
+  viewDateKey?: string
+): number {
+  return liveSecondsForField(day, nowMs, "fitnessMinutes", "fitnessTimerStartedAt", viewDateKey);
 }
 
 export function totalLiveSeconds(day: SerializedWorkLogDay | undefined, nowMs: number): number {

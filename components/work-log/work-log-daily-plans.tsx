@@ -699,11 +699,13 @@ export function DailyPlansSection({
                       This session · {formatClock(sessionSecs)}
                       {sessionFromOtherDay ? (
                         <span className="block text-amber-300/90 mt-0.5">
-                          Started {new Date(`${sessionDateKey}T12:00:00`).toLocaleDateString(undefined, {
+                          Time before today was saved to{" "}
+                          {new Date(`${sessionDateKey}T12:00:00`).toLocaleDateString(undefined, {
                             weekday: "short",
                             month: "short",
                             day: "numeric",
                           })}
+                          . Only today&apos;s time is shown here.
                         </span>
                       ) : null}
                     </>

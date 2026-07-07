@@ -1,7 +1,14 @@
 import { randomUUID } from "crypto";
 import type { Collection, Filter, UpdateFilter } from "mongodb";
 import { z } from "zod";
+import { localDateKey } from "@/lib/date-keys";
 import { capDailyMinutes } from "@/lib/work-log-time-guards";
+import {
+  isTimerStale,
+  liveTimerElapsedSeconds,
+  runTimerRolloverIfNeeded,
+  stopCrossDayTimer,
+} from "@/lib/work-log-timer-rollover";
 import {
   emptyWorkLogDay,
   serializeWorkLogDay,
@@ -267,22 +274,26 @@ type TimerFields = {
 async function finalizeRunningTimers<T extends AdminWorkLogDoc>(
   coll: Collection<T>,
   scopeFilter: Filter<T>,
-  fields: TimerFields
+  fields: TimerFields,
+  now: Date = new Date()
 ): Promise<void> {
-  const now = new Date();
   const running = await coll
     .find({ ...scopeFilter, [fields.startedAt]: { $ne: null } } as Filter<T>)
     .toArray();
   for (const doc of running) {
     const startedAt = doc[fields.startedAt];
     if (!startedAt) continue;
-    await coll.updateOne(
-      { dateKey: doc.dateKey, ...scopeFilter } as Filter<T>,
-      {
-        $inc: { [fields.minutes]: elapsedMinutes(startedAt, now) },
-        $set: { [fields.startedAt]: null, updatedAt: now },
-      } as UpdateFilter<T>
-    );
+    if (isTimerStale(startedAt, localDateKey(now))) {
+      await stopCrossDayTimer(coll, scopeFilter, fields, new Date(startedAt), now);
+    } else {
+      await coll.updateOne(
+        { dateKey: doc.dateKey, ...scopeFilter } as Filter<T>,
+        {
+          $inc: { [fields.minutes]: elapsedMinutes(startedAt, now) },
+          $set: { [fields.startedAt]: null, updatedAt: now },
+        } as UpdateFilter<T>
+      );
+    }
   }
 }
 
@@ -313,13 +324,79 @@ async function stopRunningTimer<T extends AdminWorkLogDoc>(
   }
 
   if (startedAt) {
-    await coll.updateOne(stopFilter, {
-      $inc: { [fields.minutes]: elapsedMinutes(startedAt, now) },
-      $set: { [fields.startedAt]: null, updatedAt: now },
-    } as UpdateFilter<T>);
+    if (isTimerStale(startedAt, localDateKey(now))) {
+      responseDateKey = await stopCrossDayTimer(coll, scopeFilter, fields, new Date(startedAt), now);
+    } else {
+      await coll.updateOne(stopFilter, {
+        $inc: { [fields.minutes]: elapsedMinutes(startedAt, now) },
+        $set: { [fields.startedAt]: null, updatedAt: now },
+      } as UpdateFilter<T>);
+    }
   }
 
   return responseDateKey;
+}
+
+function effectiveMinutesForDay(
+  doc: Pick<AdminWorkLogDoc, "dateKey" | "totalMinutes" | "deenMinutes" | "fitnessMinutes"> | null,
+  running: AdminWorkLogDoc | null,
+  fields: TimerFields,
+  targetDateKey: string,
+  now: Date
+): number {
+  const stored = doc?.[fields.minutes] ?? 0;
+  const startedAt = running?.[fields.startedAt];
+  if (!startedAt) return stored;
+
+  const runningKey = running.dateKey;
+  if (runningKey === targetDateKey) {
+    return stored + elapsedMinutes(startedAt, now);
+  }
+
+  if (isTimerStale(startedAt, targetDateKey)) {
+    const secs = liveTimerElapsedSeconds(startedAt, now.getTime(), targetDateKey);
+    return stored + Math.floor(secs / 60);
+  }
+
+  return stored;
+}
+
+/** Apply a time adjustment, folding in any running timer so Remove/Set work on the live total. */
+async function applyMinutesAdjustment<T extends AdminWorkLogDoc>(
+  coll: Collection<T>,
+  scopeFilter: Filter<T>,
+  writeFilter: Filter<T>,
+  targetDateKey: string,
+  fields: TimerFields,
+  mode: "add" | "set",
+  minutes: number,
+  now: Date
+): Promise<void> {
+  const running = (await coll.findOne({
+    ...scopeFilter,
+    [fields.startedAt]: { $ne: null },
+  } as Filter<T>)) as AdminWorkLogDoc | null;
+
+  const targetDoc = (await coll.findOne(writeFilter)) as AdminWorkLogDoc | null;
+  const effective = effectiveMinutesForDay(targetDoc, running, fields, targetDateKey, now);
+  const next = capDailyMinutes(
+    mode === "set" ? Math.max(0, minutes) : Math.max(0, effective + minutes)
+  );
+
+  await coll.updateOne(writeFilter, {
+    $set: {
+      [fields.minutes]: next,
+      [fields.startedAt]: null,
+      updatedAt: now,
+    },
+  } as UpdateFilter<T>);
+
+  if (running && running.dateKey !== targetDateKey) {
+    await coll.updateOne(
+      { dateKey: running.dateKey, ...scopeFilter } as Filter<T>,
+      { $set: { [fields.startedAt]: null, updatedAt: now } } as UpdateFilter<T>
+    );
+  }
 }
 
 async function getOrCreateAdminDay(
@@ -376,6 +453,8 @@ export async function applyWorkLogAction(
   const dayFilter = { personId, dateKey } as Filter<AdminWorkLogDoc>;
   let responseDateKey = dateKey;
 
+  await runTimerRolloverIfNeeded(coll, scopeFilter, now);
+
   switch (body.action) {
     case "startTimer": {
       const fields = timerFields(body.list);
@@ -391,17 +470,17 @@ export async function applyWorkLogAction(
     }
     case "adjustMinutes": {
       const fields = timerFields(body.list);
-      const doc = await getOrCreateAdminDay(coll, dateKey, personId);
-      const rawNext =
-        body.mode === "set"
-          ? Math.max(0, body.minutes)
-          : Math.max(0, (doc[fields.minutes] ?? 0) + body.minutes);
-      const next = capDailyMinutes(rawNext);
-      const $set: Record<string, unknown> = { [fields.minutes]: next, updatedAt: now };
-      if (body.mode === "set") {
-        $set[fields.startedAt] = null;
-      }
-      await coll.updateOne(dayFilter, { $set });
+      await getOrCreateAdminDay(coll, dateKey, personId);
+      await applyMinutesAdjustment(
+        coll,
+        scopeFilter,
+        dayFilter,
+        dateKey,
+        fields,
+        body.mode,
+        body.minutes,
+        now
+      );
       break;
     }
     case "addTask":
@@ -441,6 +520,8 @@ export async function applyUserWorkLogAction(
   let responseDateKey = dateKey;
   let writeDoc: UserWorkLogDoc | null = null;
 
+  await runTimerRolloverIfNeeded(coll, scopeFilter, now);
+
   const ensureWriteDoc = async () => {
     if (!writeDoc) {
       writeDoc = await resolveUserDayForWrite(coll, userId, dateKey, personId);
@@ -474,16 +555,16 @@ export async function applyUserWorkLogAction(
     case "adjustMinutes": {
       const fields = timerFields(body.list);
       const doc = await ensureWriteDoc();
-      const rawNext =
-        body.mode === "set"
-          ? Math.max(0, body.minutes)
-          : Math.max(0, (doc[fields.minutes] ?? 0) + body.minutes);
-      const next = capDailyMinutes(rawNext);
-      const $set: Record<string, unknown> = { [fields.minutes]: next, updatedAt: now };
-      if (body.mode === "set") {
-        $set[fields.startedAt] = null;
-      }
-      await coll.updateOne(dayDocFilter(doc), { $set });
+      await applyMinutesAdjustment(
+        coll,
+        scopeFilter,
+        dayDocFilter(doc),
+        dateKey,
+        fields,
+        body.mode,
+        body.minutes,
+        now
+      );
       break;
     }
     case "addTask":

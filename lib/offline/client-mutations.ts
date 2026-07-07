@@ -1,6 +1,8 @@
 import type { SerializedWorkLogDay } from "@/lib/admin-work-log";
 import { emptyWorkLogDay } from "@/lib/admin-work-log";
 import { capDailyMinutes } from "@/lib/work-log-time-guards";
+import { applyTimerRolloverToDays, liveTimerElapsedSeconds } from "@/lib/work-log-timer-rollover";
+import { localDateKey } from "@/lib/date-keys";
 import {
   createDefaultPlans,
   findPlan,
@@ -284,6 +286,32 @@ function applyPlanMutation(
   return plans;
 }
 
+function effectiveMinutesForDay(
+  doc: AdminWorkLogDoc,
+  allDays: SerializedWorkLogDay[],
+  fields: ReturnType<typeof timerFields>,
+  targetDateKey: string,
+  now: Date
+): number {
+  const stored = doc[fields.minutes] ?? 0;
+  const running = allDays.find((d) => d[fields.startedAt]);
+  const startedAtRaw = running?.[fields.startedAt];
+  if (!startedAtRaw) return stored;
+
+  const startedAt = new Date(startedAtRaw);
+  const runningKey = running!.dateKey;
+  if (runningKey === targetDateKey) {
+    return stored + elapsedMinutes(startedAt, now);
+  }
+
+  if (localDateKey(startedAt) < targetDateKey) {
+    const secs = liveTimerElapsedSeconds(startedAtRaw, now.getTime(), targetDateKey);
+    return stored + Math.floor(secs / 60);
+  }
+
+  return stored;
+}
+
 /** Apply a work-log PATCH action locally for offline optimistic updates. */
 export function applyClientWorkLogAction(
   day: SerializedWorkLogDay | null,
@@ -292,12 +320,15 @@ export function applyClientWorkLogAction(
   allDays: SerializedWorkLogDay[] = []
 ): SerializedWorkLogDay {
   const now = new Date();
-  let doc = dayToDoc(day ?? emptyWorkLogDay(dateKey));
+  const rolledDays = applyTimerRolloverToDays(allDays.length ? allDays : day ? [day] : []);
+  let doc = dayToDoc(
+    rolledDays.find((d) => d.dateKey === dateKey) ?? day ?? emptyWorkLogDay(dateKey)
+  );
 
   switch (body.action) {
     case "startTimer": {
       const fields = timerFields(body.list as (typeof TASK_LISTS)[number] | undefined);
-      for (const d of allDays) {
+      for (const d of rolledDays) {
         const other = dayToDoc(d);
         const started = other[fields.startedAt];
         if (started) {
@@ -315,7 +346,7 @@ export function applyClientWorkLogAction(
       let target = doc;
       const started = doc[fields.startedAt];
       if (!started) {
-        const running = allDays.find((d) => {
+        const running = rolledDays.find((d) => {
           const o = dayToDoc(d);
           return o[fields.startedAt] != null;
         });
@@ -337,14 +368,10 @@ export function applyClientWorkLogAction(
       const fields = timerFields(body.list as (typeof TASK_LISTS)[number] | undefined);
       const mode = body.mode as "add" | "set";
       const minutes = Number(body.minutes);
-      const rawNext =
-        mode === "set"
-          ? Math.max(0, minutes)
-          : Math.max(0, (doc[fields.minutes] ?? 0) + minutes);
+      const effective = effectiveMinutesForDay(doc, rolledDays, fields, dateKey, now);
+      const rawNext = mode === "set" ? Math.max(0, minutes) : Math.max(0, effective + minutes);
       doc[fields.minutes] = capDailyMinutes(rawNext);
-      if (mode === "set") {
-        doc[fields.startedAt] = null;
-      }
+      doc[fields.startedAt] = null;
       break;
     }
     case "addTask":

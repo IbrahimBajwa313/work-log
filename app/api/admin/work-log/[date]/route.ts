@@ -15,6 +15,7 @@ import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
 import { isAdminRequestAuthorized } from "@/lib/admin-auth";
 import { applyWorkLogAction, workLogActionSchema } from "@/lib/work-log-mutations";
 import { runAdminCarryOverIfNeeded } from "@/lib/work-log-carry-over";
+import { runTimerRolloverIfNeeded } from "@/lib/work-log-timer-rollover";
 import { localDateKey } from "@/lib/date-keys";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,8 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
     if (params.date === localDateKey(new Date())) {
       await runAdminCarryOverIfNeeded(db, personId);
+      const coll = db.collection<AdminWorkLogDoc>(adminWorkLogCollection);
+      await runTimerRolloverIfNeeded(coll, { personId });
     }
 
     const doc = await db

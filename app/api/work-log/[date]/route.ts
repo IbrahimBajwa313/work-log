@@ -10,6 +10,7 @@ import {
 import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
 import { collapseWorkLogDayRows, resolveUserDayForWrite } from "@/lib/work-log-day-resolve";
 import { runUserCarryOverIfNeeded } from "@/lib/work-log-carry-over";
+import { runTimerRolloverIfNeeded } from "@/lib/work-log-timer-rollover";
 import { localDateKey } from "@/lib/date-keys";
 import { isValidDateKey } from "@/lib/admin-work-log";
 import { connectMongoDb, defaultDbName, getMongoUri } from "@/lib/mongodb";
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
 
     if (params.date === localDateKey(new Date())) {
       await runUserCarryOverIfNeeded(db, coll, session.sub, personId);
+      await runTimerRolloverIfNeeded(coll, { userId: session.sub, personId });
     }
 
     const candidates: UserWorkLogDoc[] = [];

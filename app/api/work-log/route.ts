@@ -12,6 +12,7 @@ import {
 import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
 import { collapseWorkLogDayRows } from "@/lib/work-log-day-resolve";
 import { runUserCarryOverIfNeeded } from "@/lib/work-log-carry-over";
+import { runTimerRolloverIfNeeded } from "@/lib/work-log-timer-rollover";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +47,7 @@ export async function GET(request: NextRequest) {
 
     const coll = db.collection<UserWorkLogDoc>(userWorkLogCollection);
     await runUserCarryOverIfNeeded(db, coll, session.sub, personId);
+    await runTimerRolloverIfNeeded(coll, { userId: session.sub, personId });
 
     const filter: Record<string, unknown> = { userId: session.sub, personId };
     if (to) {

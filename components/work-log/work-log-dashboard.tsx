@@ -61,6 +61,13 @@ import {
   validateTimeAdjustment,
 } from "@/lib/work-log-time-guards";
 import {
+  deenLiveSeconds,
+  fitnessLiveSeconds,
+  liveSeconds,
+  totalLiveSeconds,
+} from "@/lib/work-log-live-seconds";
+import { liveTimerElapsedSeconds, applyTimerRolloverToDays } from "@/lib/work-log-timer-rollover";
+import {
   deleteWorkLogDay,
   fetchWorkLogDays,
   fetchWorkLogSettings,
@@ -246,41 +253,6 @@ function emptyDay(dateKey: string): WorkLogDay {
     azkarEveningSeconds: 0,
     notes: "",
   };
-}
-
-/** Live worked seconds for a day, including the running timer if any. */
-function liveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = (day.totalMinutes ?? 0) * 60;
-  if (day.timerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.timerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
-}
-
-/** Live Deen seconds for a day, including the running deen timer if any. */
-function deenLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = (day.deenMinutes ?? 0) * 60;
-  if (day.deenTimerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.deenTimerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
-}
-
-/** Live fitness seconds for a day, including the running fitness timer if any. */
-function fitnessLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  if (!day) return 0;
-  let secs = (day.fitnessMinutes ?? 0) * 60;
-  if (day.fitnessTimerStartedAt) {
-    secs += Math.max(0, (nowMs - new Date(day.fitnessTimerStartedAt).getTime()) / 1000);
-  }
-  return Math.floor(secs);
-}
-
-/** Combined business + Deen + fitness time for a day. */
-function totalLiveSeconds(day: WorkLogDay | undefined, nowMs: number): number {
-  return liveSeconds(day, nowMs) + deenLiveSeconds(day, nowMs) + fitnessLiveSeconds(day, nowMs);
 }
 
 function formatClock(totalSeconds: number): string {
@@ -700,7 +672,11 @@ export function WorkLogDashboard({
           setErrorMsg(result.error ?? "Failed to load work log.");
           return;
         }
-        setDays((result.data?.days ?? []) as WorkLogDay[]);
+        setDays(
+          applyTimerRolloverToDays(
+            (result.data?.days ?? []) as import("@/lib/admin-work-log").SerializedWorkLogDay[]
+          ) as WorkLogDay[]
+        );
         if (result.fromCache && result.offline) {
           setErrorMsg(null);
         }
@@ -724,7 +700,7 @@ export function WorkLogDashboard({
       const rows = Array.isArray((data as { days?: unknown })?.days)
         ? ((data as { days: WorkLogDay[] }).days)
         : [];
-      setDays(rows);
+      setDays(applyTimerRolloverToDays(rows as import("@/lib/admin-work-log").SerializedWorkLogDay[]) as WorkLogDay[]);
     } catch {
       setDays([]);
       setErrorMsg("Failed to load work log.");
@@ -859,17 +835,14 @@ export function WorkLogDashboard({
   const patchDayForPlans = useCallback(
     async (body: Record<string, unknown>) => {
       const action = body.action;
-      if (action === "stopTimer") {
-        const list = body.list as "work" | "deen" | "fitness" | undefined;
-        let dateKey = todayKey;
-        if (list === "work" && runningDay) dateKey = runningDay.dateKey;
-        else if (list === "deen" && runningDeenDay) dateKey = runningDeenDay.dateKey;
-        else if (list === "fitness" && runningFitnessDay) dateKey = runningFitnessDay.dateKey;
-        return patchDay(dateKey, body);
+      if (action === "stopTimer" || action === "adjustMinutes") {
+        const ok = await patchDay(todayKey, body);
+        if (ok) void load();
+        return ok;
       }
       return patchDay(todayKey, body);
     },
-    [patchDay, todayKey, runningDay, runningDeenDay, runningFitnessDay]
+    [patchDay, todayKey, load]
   );
 
   const saveNotes = async () => {
@@ -1011,9 +984,15 @@ export function WorkLogDashboard({
     const now = new Date(nowMs);
 
     const todayTotalSecs = totalLiveSeconds(byKey.get(todayKey), nowMs);
-    const todayWorkSecs = liveSeconds(byKey.get(todayKey), nowMs);
-    const todayDeenSecs = deenLiveSeconds(byKey.get(todayKey), nowMs);
-    const todayFitnessSecs = fitnessLiveSeconds(byKey.get(todayKey), nowMs);
+    const todayWorkSecs = runningDay?.timerStartedAt
+      ? liveSeconds(runningDay, nowMs, todayKey)
+      : liveSeconds(byKey.get(todayKey), nowMs);
+    const todayDeenSecs = runningDeenDay?.deenTimerStartedAt
+      ? deenLiveSeconds(runningDeenDay, nowMs, todayKey)
+      : deenLiveSeconds(byKey.get(todayKey), nowMs);
+    const todayFitnessSecs = runningFitnessDay?.fitnessTimerStartedAt
+      ? fitnessLiveSeconds(runningFitnessDay, nowMs, todayKey)
+      : fitnessLiveSeconds(byKey.get(todayKey), nowMs);
 
     let weekSecs = 0;
     for (let i = 0; i < 7; i++) {
@@ -1113,21 +1092,15 @@ export function WorkLogDashboard({
   );
 
   const runningSessionSecs = runningDay?.timerStartedAt
-    ? Math.max(0, Math.floor((nowMs - new Date(runningDay.timerStartedAt).getTime()) / 1000))
+    ? liveTimerElapsedSeconds(runningDay.timerStartedAt, nowMs, todayKey)
     : 0;
 
   const deenRunningSessionSecs = runningDeenDay?.deenTimerStartedAt
-    ? Math.max(
-        0,
-        Math.floor((nowMs - new Date(runningDeenDay.deenTimerStartedAt).getTime()) / 1000)
-      )
+    ? liveTimerElapsedSeconds(runningDeenDay.deenTimerStartedAt, nowMs, todayKey)
     : 0;
 
   const fitnessRunningSessionSecs = runningFitnessDay?.fitnessTimerStartedAt
-    ? Math.max(
-        0,
-        Math.floor((nowMs - new Date(runningFitnessDay.fitnessTimerStartedAt).getTime()) / 1000)
-      )
+    ? liveTimerElapsedSeconds(runningFitnessDay.fitnessTimerStartedAt, nowMs, todayKey)
     : 0;
 
   const inputClass =
@@ -1336,9 +1309,9 @@ export function WorkLogDashboard({
             busy={busy}
             inputClass={inputClass}
             nowMs={nowMs}
-            workSeconds={liveSeconds(runningDay ?? today, nowMs)}
-            deenSeconds={deenLiveSeconds(runningDeenDay ?? today, nowMs)}
-            fitnessSeconds={fitnessLiveSeconds(runningFitnessDay ?? today, nowMs)}
+            workSeconds={liveSeconds(runningDay ?? today, nowMs, todayKey)}
+            deenSeconds={deenLiveSeconds(runningDeenDay ?? today, nowMs, todayKey)}
+            fitnessSeconds={fitnessLiveSeconds(runningFitnessDay ?? today, nowMs, todayKey)}
             workTimerRunning={timerRunning}
             deenTimerRunning={deenTimerRunning}
             fitnessTimerRunning={fitnessTimerRunning}
