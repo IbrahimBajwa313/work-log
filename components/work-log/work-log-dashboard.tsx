@@ -459,7 +459,7 @@ function historyTimeKey(dateKey: string, list: TimeList): string {
 function HistoryDayTimeEditor({
   day,
   nowMs,
-  busy,
+  busyKey,
   adjustH,
   adjustM,
   onAdjustHChange,
@@ -468,7 +468,7 @@ function HistoryDayTimeEditor({
 }: {
   day: WorkLogDay;
   nowMs: number;
-  busy: boolean;
+  busyKey: string | null;
   adjustH: Record<string, string>;
   adjustM: Record<string, string>;
   onAdjustHChange: (key: string, value: string) => void;
@@ -486,21 +486,21 @@ function HistoryDayTimeEditor({
       list: "work",
       label: "Business",
       color: WORK_LOG_AREA_COLORS.work.color,
-      secs: liveSeconds(day, nowMs),
+      secs: liveSeconds(day, nowMs, day.dateKey),
       running: Boolean(day.timerStartedAt),
     },
     {
       list: "deen",
       label: "Deen",
       color: WORK_LOG_AREA_COLORS.deen.color,
-      secs: deenLiveSeconds(day, nowMs),
+      secs: deenLiveSeconds(day, nowMs, day.dateKey),
       running: Boolean(day.deenTimerStartedAt),
     },
     {
       list: "fitness",
       label: "Fitness",
       color: WORK_LOG_AREA_COLORS.fitness.color,
-      secs: fitnessLiveSeconds(day, nowMs),
+      secs: fitnessLiveSeconds(day, nowMs, day.dateKey),
       running: Boolean(day.fitnessTimerStartedAt),
     },
   ];
@@ -510,6 +510,7 @@ function HistoryDayTimeEditor({
       <p className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">Edit logged time</p>
       {rows.map((row) => {
         const key = historyTimeKey(day.dateKey, row.list);
+        const rowBusy = busyKey === key;
         return (
           <div key={row.list} className="flex flex-wrap items-center gap-x-2 gap-y-2">
             <span className="w-[4.5rem] text-xs font-semibold shrink-0" style={{ color: row.color }}>
@@ -520,6 +521,9 @@ function HistoryDayTimeEditor({
             </span>
             {row.running ? (
               <span className="text-[10px] font-semibold text-amber-300/90">timer running</span>
+            ) : null}
+            {rowBusy ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--accent-cyan)]" aria-hidden />
             ) : null}
             <input
               type="number"
@@ -541,7 +545,7 @@ function HistoryDayTimeEditor({
             />
             <button
               type="button"
-              disabled={busy}
+              disabled={rowBusy}
               onClick={() => onApply(day.dateKey, row.list, "add", 1)}
               className="rounded-md border border-[var(--card-border)] px-2.5 py-1.5 text-xs font-semibold hover:bg-white/5 disabled:opacity-50"
             >
@@ -549,7 +553,7 @@ function HistoryDayTimeEditor({
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={rowBusy}
               onClick={() => onApply(day.dateKey, row.list, "add", -1)}
               className="rounded-md border border-red-400/40 bg-red-400/10 px-2.5 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-400/20 disabled:opacity-50"
             >
@@ -557,7 +561,7 @@ function HistoryDayTimeEditor({
             </button>
             <button
               type="button"
-              disabled={busy}
+              disabled={rowBusy}
               onClick={() => onApply(day.dateKey, row.list, "set")}
               className="rounded-md border border-[var(--accent-cyan)]/40 bg-[var(--accent-cyan)]/10 px-2.5 py-1.5 text-xs font-semibold text-[var(--accent-cyan)] hover:bg-[var(--accent-cyan)]/20 disabled:opacity-50"
             >
@@ -605,6 +609,7 @@ export function WorkLogDashboard({
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [historyAdjustH, setHistoryAdjustH] = useState<Record<string, string>>({});
   const [historyAdjustM, setHistoryAdjustM] = useState<Record<string, string>>({});
+  const [historyAdjustBusy, setHistoryAdjustBusy] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [activeView, setActiveView] = useState<"track" | "insights">("track");
   const [showQuickStart, setShowQuickStart] = useState(false);
@@ -771,9 +776,17 @@ export function WorkLogDashboard({
   }, [today.notes, today.dateKey]);
 
   const patchDay = useCallback(
-    async (dateKey: string, body: Record<string, unknown>) => {
+    async (
+      dateKey: string,
+      body: Record<string, unknown>,
+      options?: { historyBusyKey?: string }
+    ) => {
       setErrorMsg(null);
-      setBusy(true);
+      if (options?.historyBusyKey) {
+        setHistoryAdjustBusy(options.historyBusyKey);
+      } else {
+        setBusy(true);
+      }
       try {
         if (offlineUserId) {
           const result = await patchWorkLogDay(
@@ -791,8 +804,8 @@ export function WorkLogDashboard({
           }
           const day = result.data?.day as WorkLogDay | undefined;
           if (day) mergeDay(day);
-          if (result.error) {
-            setErrorMsg(result.error);
+          if (result.offline && result.error) {
+            setErrorMsg("Saved on this device — will sync when the server is reachable.");
           }
           return Boolean(day);
         }
@@ -824,7 +837,11 @@ export function WorkLogDashboard({
         setErrorMsg("Request failed. Check your connection.");
         return false;
       } finally {
-        setBusy(false);
+        if (options?.historyBusyKey) {
+          setHistoryAdjustBusy(null);
+        } else {
+          setBusy(false);
+        }
       }
     },
     [apiBase, authorizedInit, mergeDay, activePersonId, settingsEnabled, offlineUserId, days]
@@ -836,13 +853,11 @@ export function WorkLogDashboard({
     async (body: Record<string, unknown>) => {
       const action = body.action;
       if (action === "stopTimer" || action === "adjustMinutes") {
-        const ok = await patchDay(todayKey, body);
-        if (ok) void load();
-        return ok;
+        return patchDay(todayKey, body);
       }
       return patchDay(todayKey, body);
     },
-    [patchDay, todayKey, load]
+    [patchDay, todayKey]
   );
 
   const saveNotes = async () => {
@@ -893,14 +908,17 @@ export function WorkLogDashboard({
       const key = historyTimeKey(dateKey, list);
       const h = Number.parseInt(historyAdjustH[key] || "0", 10);
       const m = Number.parseInt(historyAdjustM[key] || "0", 10);
-      if (!Number.isFinite(h) || !Number.isFinite(m)) return;
+      if (!Number.isFinite(h) || !Number.isFinite(m)) {
+        setErrorMsg("Enter valid hours and minutes.");
+        return;
+      }
       const day = days.find((d) => d.dateKey === dateKey);
       const currentMinutes = Math.floor(
         (list === "work"
-          ? liveSeconds(day, nowMs)
+          ? liveSeconds(day, nowMs, dateKey)
           : list === "deen"
-            ? deenLiveSeconds(day, nowMs)
-            : fitnessLiveSeconds(day, nowMs)) / 60
+            ? deenLiveSeconds(day, nowMs, dateKey)
+            : fitnessLiveSeconds(day, nowMs, dateKey)) / 60
       );
       const validation = validateTimeAdjustment({
         h,
@@ -911,9 +929,18 @@ export function WorkLogDashboard({
         dateKey,
         now: new Date(nowMs),
       });
+      if (!validation.ok) {
+        setErrorMsg(validation.error ?? "Invalid time entry.");
+        return;
+      }
       const minutes = confirmTimeAdjustment(validation, h, dateKey, new Date(nowMs));
       if (minutes === null) return;
-      const ok = await patchDay(dateKey, { action: "adjustMinutes", mode, minutes, list });
+      setErrorMsg(null);
+      const ok = await patchDay(
+        dateKey,
+        { action: "adjustMinutes", mode, minutes, list },
+        { historyBusyKey: key }
+      );
       if (ok) {
         setHistoryAdjustH((s) => ({ ...s, [key]: "" }));
         setHistoryAdjustM((s) => ({ ...s, [key]: "" }));
@@ -1641,7 +1668,7 @@ export function WorkLogDashboard({
             Tap any day to see what you logged and which tasks you completed.
           </p>
 
-          {loading ? (
+          {loading && days.length === 0 ? (
             <div className="flex justify-center py-12">
               <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-cyan)]" />
             </div>
@@ -1693,7 +1720,7 @@ export function WorkLogDashboard({
                         <HistoryDayTimeEditor
                           day={day}
                           nowMs={nowMs}
-                          busy={busy}
+                          busyKey={historyAdjustBusy}
                           adjustH={historyAdjustH}
                           adjustM={historyAdjustM}
                           onAdjustHChange={(key, value) =>

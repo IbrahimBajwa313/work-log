@@ -1,7 +1,7 @@
 import type { SerializedWorkLogDay } from "@/lib/admin-work-log";
 import { emptyWorkLogDay } from "@/lib/admin-work-log";
 import { capDailyMinutes } from "@/lib/work-log-time-guards";
-import { applyTimerRolloverToDays, liveTimerElapsedSeconds } from "@/lib/work-log-timer-rollover";
+import { applyTimerRolloverToDays } from "@/lib/work-log-timer-rollover";
 import { localDateKey } from "@/lib/date-keys";
 import {
   createDefaultPlans,
@@ -295,21 +295,8 @@ function effectiveMinutesForDay(
 ): number {
   const stored = doc[fields.minutes] ?? 0;
   const running = allDays.find((d) => d[fields.startedAt]);
-  const startedAtRaw = running?.[fields.startedAt];
-  if (!startedAtRaw) return stored;
-
-  const startedAt = new Date(startedAtRaw);
-  const runningKey = running!.dateKey;
-  if (runningKey === targetDateKey) {
-    return stored + elapsedMinutes(startedAt, now);
-  }
-
-  if (localDateKey(startedAt) < targetDateKey) {
-    const secs = liveTimerElapsedSeconds(startedAtRaw, now.getTime(), targetDateKey);
-    return stored + Math.floor(secs / 60);
-  }
-
-  return stored;
+  if (!running || running.dateKey !== targetDateKey) return stored;
+  return stored + elapsedMinutes(new Date(running[fields.startedAt]!), now);
 }
 
 /** Apply a work-log PATCH action locally for offline optimistic updates. */

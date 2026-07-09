@@ -5,10 +5,18 @@ import { localDateKey } from "@/lib/date-keys";
 import { capDailyMinutes } from "@/lib/work-log-time-guards";
 import {
   isTimerStale,
-  liveTimerElapsedSeconds,
   runTimerRolloverIfNeeded,
   stopCrossDayTimer,
 } from "@/lib/work-log-timer-rollover";
+
+function shouldRunTimerRollover(
+  dateKey: string,
+  action: z.infer<typeof workLogActionSchema>["action"],
+  now: Date
+): boolean {
+  if (action === "startTimer" || action === "stopTimer") return true;
+  return dateKey === localDateKey(now);
+}
 import {
   emptyWorkLogDay,
   serializeWorkLogDay,
@@ -346,19 +354,8 @@ function effectiveMinutesForDay(
 ): number {
   const stored = doc?.[fields.minutes] ?? 0;
   const startedAt = running?.[fields.startedAt];
-  if (!startedAt) return stored;
-
-  const runningKey = running.dateKey;
-  if (runningKey === targetDateKey) {
-    return stored + elapsedMinutes(startedAt, now);
-  }
-
-  if (isTimerStale(startedAt, targetDateKey)) {
-    const secs = liveTimerElapsedSeconds(startedAt, now.getTime(), targetDateKey);
-    return stored + Math.floor(secs / 60);
-  }
-
-  return stored;
+  if (!startedAt || running!.dateKey !== targetDateKey) return stored;
+  return stored + elapsedMinutes(startedAt, now);
 }
 
 /** Apply a time adjustment, folding in any running timer so Remove/Set work on the live total. */
@@ -390,13 +387,6 @@ async function applyMinutesAdjustment<T extends AdminWorkLogDoc>(
       updatedAt: now,
     },
   } as UpdateFilter<T>);
-
-  if (running && running.dateKey !== targetDateKey) {
-    await coll.updateOne(
-      { dateKey: running.dateKey, ...scopeFilter } as Filter<T>,
-      { $set: { [fields.startedAt]: null, updatedAt: now } } as UpdateFilter<T>
-    );
-  }
 }
 
 async function getOrCreateAdminDay(
@@ -453,7 +443,9 @@ export async function applyWorkLogAction(
   const dayFilter = { personId, dateKey } as Filter<AdminWorkLogDoc>;
   let responseDateKey = dateKey;
 
-  await runTimerRolloverIfNeeded(coll, scopeFilter, now);
+  if (shouldRunTimerRollover(dateKey, body.action, now)) {
+    await runTimerRolloverIfNeeded(coll, scopeFilter, now);
+  }
 
   switch (body.action) {
     case "startTimer": {
@@ -520,7 +512,9 @@ export async function applyUserWorkLogAction(
   let responseDateKey = dateKey;
   let writeDoc: UserWorkLogDoc | null = null;
 
-  await runTimerRolloverIfNeeded(coll, scopeFilter, now);
+  if (shouldRunTimerRollover(dateKey, body.action, now)) {
+    await runTimerRolloverIfNeeded(coll, scopeFilter, now);
+  }
 
   const ensureWriteDoc = async () => {
     if (!writeDoc) {

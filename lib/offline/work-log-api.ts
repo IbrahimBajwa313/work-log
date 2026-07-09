@@ -2,6 +2,7 @@ import type { SerializedWorkLogDay } from "@/lib/admin-work-log";
 import { applyClientWorkLogAction } from "@/lib/offline/client-mutations";
 import { applyCarryOverToDays } from "@/lib/work-log-carry-over";
 import { applyTimerRolloverToDays } from "@/lib/work-log-timer-rollover";
+import { localDateKey } from "@/lib/date-keys";
 import {
   enqueueSync,
   getCachedDays,
@@ -139,23 +140,13 @@ export async function patchWorkLogDay(
   const personQuery = `?personId=${encodeURIComponent(personId)}`;
   const url = `${apiBase}/${encodeURIComponent(dateKey)}${personQuery}`;
 
-  const rolledDays = applyTimerRolloverToDays(allDays);
+  const todayKey = localDateKey(new Date());
+  const shouldRollover =
+    body.action !== "adjustMinutes" || dateKey === todayKey;
+  const rolledDays = shouldRollover ? applyTimerRolloverToDays(allDays) : allDays;
   const currentDay = rolledDays.find((d) => d.dateKey === dateKey) ?? null;
   const optimistic = applyClientWorkLogAction(currentDay, dateKey, body, rolledDays);
-  let nextDays = rolledDays.map((d) => (d.dateKey === optimistic.dateKey ? optimistic : d));
-  if (body.action === "adjustMinutes" && body.list) {
-    const startedKey =
-      body.list === "deen"
-        ? "deenTimerStartedAt"
-        : body.list === "fitness"
-          ? "fitnessTimerStartedAt"
-          : "timerStartedAt";
-    nextDays = nextDays.map((d) =>
-      d.dateKey !== optimistic.dateKey && d[startedKey as keyof SerializedWorkLogDay]
-        ? { ...d, [startedKey]: null }
-        : d
-    );
-  }
+  const nextDays = rolledDays.map((d) => (d.dateKey === optimistic.dateKey ? optimistic : d));
   await cacheDays(userId, personId, nextDays);
 
   if (isOnline()) {
