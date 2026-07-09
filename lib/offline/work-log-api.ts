@@ -61,6 +61,9 @@ export async function fetchWorkLogDays(
           data && typeof data === "object" && "error" in data
             ? String((data as { error: unknown }).error)
             : `Request failed (${res.status})`;
+        if (res.status === 401 || res.status === 403) {
+          return { ok: false, error: "Your session expired. Please sign in again." };
+        }
         const cached = await getCachedDays(userId, personId);
         if (cached) {
           let days = cached;
@@ -170,6 +173,9 @@ export async function patchWorkLogDay(
           data && typeof data === "object" && "error" in data
             ? String((data as { error: unknown }).error)
             : `Request failed (${res.status})`;
+        if (res.status === 401 || res.status === 403) {
+          return { ok: false, error: "Your session expired. Please sign in again." };
+        }
         await enqueueSync({
           url,
           method: "PATCH",

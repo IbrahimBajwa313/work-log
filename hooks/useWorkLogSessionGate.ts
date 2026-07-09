@@ -52,6 +52,14 @@ export function useWorkLogSessionGate() {
         }
       }
 
+      // Online but session rejected — do not show a stale cached user as logged in.
+      if (res.status === 401 || res.status === 403) {
+        await clearCachedUser();
+        setUser(null);
+        setIsAuthenticated(false);
+        return false;
+      }
+
       const ok = await tryCachedUser();
       if (!ok) {
         setUser(null);

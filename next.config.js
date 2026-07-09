@@ -113,13 +113,8 @@ const withPWA = require("@ducanh2912/next-pwa").default({
         },
       },
       {
-        urlPattern: /\/api\/auth\/me/i,
-        handler: "NetworkFirst",
-        options: {
-          cacheName: "auth-api",
-          networkTimeoutSeconds: 5,
-          expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 },
-        },
+        urlPattern: /\/api\/auth\/.*/i,
+        handler: "NetworkOnly",
       },
     ],
   },

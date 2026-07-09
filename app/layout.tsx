@@ -39,6 +39,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
       <body className={`${inter.variable} font-sans antialiased flex min-h-screen flex-col`}>
         <PwaShell />
         <SiteHeader />
