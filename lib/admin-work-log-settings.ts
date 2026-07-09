@@ -41,7 +41,7 @@ export type WorkLogTaskTemplate = {
   text: string;
   priority: WorkLogPriority;
   estimateMinutes: number | null;
-  list: "work" | "deen";
+  list: "work" | "deen" | "fitness";
 };
 
 type AdminWorkLogSettingsDoc = {
@@ -78,7 +78,7 @@ export type SerializedWorkLogTaskTemplate = {
   text: string;
   priority: WorkLogPriority;
   estimateMinutes: number | null;
-  list: "work" | "deen";
+  list: "work" | "deen" | "fitness";
 };
 
 let indexesEnsured = false;
@@ -108,7 +108,7 @@ function serializeTemplate(t: WorkLogTaskTemplate): SerializedWorkLogTaskTemplat
       typeof t.estimateMinutes === "number" && t.estimateMinutes > 0
         ? Math.round(t.estimateMinutes)
         : null,
-    list: t.list === "deen" ? "deen" : "work",
+    list: t.list === "deen" ? "deen" : t.list === "fitness" ? "fitness" : "work",
   };
 }
 
@@ -230,7 +230,7 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
     text: z.string().trim().min(1).max(500),
     priority: z.enum(WORK_LOG_PRIORITIES).optional(),
     estimateMinutes: z.coerce.number().int().min(1).max(24 * 60).nullish(),
-    list: z.enum(["work", "deen"]).optional(),
+    list: z.enum(["work", "deen", "fitness"]).optional(),
   }),
   z.object({
     action: z.literal("updateTemplate"),
@@ -238,7 +238,7 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
     text: z.string().trim().min(1).max(500).optional(),
     priority: z.enum(WORK_LOG_PRIORITIES).optional(),
     estimateMinutes: z.coerce.number().int().min(1).max(24 * 60).nullish(),
-    list: z.enum(["work", "deen"]).optional(),
+    list: z.enum(["work", "deen", "fitness"]).optional(),
   }),
   z.object({
     action: z.literal("deleteTemplate"),

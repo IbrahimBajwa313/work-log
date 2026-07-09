@@ -256,6 +256,8 @@ export type DailyPlansSectionProps = {
   azkarEveningSeconds?: number;
   personId?: string;
   onPatch: (body: Record<string, unknown>) => Promise<boolean>;
+  onActivePlanChange?: (plan: SerializedWorkLogPlan | null) => void;
+  onTaskAdded?: () => void;
 };
 
 export function DailyPlansSection({
@@ -280,6 +282,8 @@ export function DailyPlansSection({
   azkarEveningSeconds = 0,
   personId = "primary",
   onPatch,
+  onActivePlanChange,
+  onTaskAdded,
 }: DailyPlansSectionProps) {
   const searchParams = useSearchParams();
   const [activeTabId, setActiveTabId] = useState<string>(DEFAULT_WORK_PLAN_ID);
@@ -337,6 +341,13 @@ export function DailyPlansSection({
     orderedPlans.find((p) => p.id === activeTabId) ?? orderedPlans[0] ?? null;
   const plansToRender = activePlan ? [activePlan] : [];
 
+  useEffect(() => {
+    if (!onActivePlanChange) return;
+    const sorted = [...plans].sort((a, b) => a.order - b.order);
+    const plan = sorted.find((p) => p.id === activeTabId) ?? sorted[0] ?? null;
+    onActivePlanChange(plan);
+  }, [activeTabId, plans, onActivePlanChange]);
+
   const timerListForPlan = (plan: SerializedWorkLogPlan): "work" | "deen" | "fitness" | null => {
     if (plan.kind === "work") return "work";
     if (plan.kind === "deen") return "deen";
@@ -393,6 +404,7 @@ export function DailyPlansSection({
       setNewSubTask((s) => ({ ...s, [planId]: "" }));
       setNewSubEstH((s) => ({ ...s, [planId]: "" }));
       setNewSubEstM((s) => ({ ...s, [planId]: "" }));
+      onTaskAdded?.();
     }
   };
 

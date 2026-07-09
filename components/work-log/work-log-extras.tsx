@@ -4,6 +4,9 @@ import { useState, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Bookmark,
+  Briefcase,
+  Dumbbell,
+  List,
   Moon,
   Plus,
   Settings,
@@ -13,7 +16,16 @@ import {
   Users,
   ArrowRight,
 } from "lucide-react";
-import { WORK_LOG_AREA_COLORS } from "@/lib/work-log-area-colors";
+import {
+  WORK_LOG_AREA_COLORS,
+  WORK_LOG_CUSTOM_PLAN_COLOR,
+} from "@/lib/work-log-area-colors";
+import {
+  MILESTONE_CATEGORY_LABELS,
+  MONTHLY_MILESTONE_CATEGORIES,
+  templateListLabel,
+  type TaskTemplateList,
+} from "@/lib/user-work-log-settings";
 
 export type WorkLogPriority = "high" | "medium" | "low";
 
@@ -28,7 +40,8 @@ export type WorkLogTaskTemplate = {
   text: string;
   priority: WorkLogPriority;
   estimateMinutes: number | null;
-  list: "work" | "deen";
+  list: TaskTemplateList;
+  customAreaTitle?: string | null;
 };
 
 import type {
@@ -49,6 +62,7 @@ export type WorkLogSettings = {
   monthlyGoalOverrides: MonthlyGoalOverride[];
   yearlyGoalOverrides: YearlyGoalOverride[];
   carryOverIncompleteTasks: boolean;
+  customAreas: string[];
 };
 
 const PRIORITY_STYLES: Record<WorkLogPriority, { label: string; className: string }> = {
@@ -168,6 +182,109 @@ function formatDuration(totalSeconds: number): string {
   return `${h}h ${m}m`;
 }
 
+type SelectedTemplateCategory =
+  | { kind: "core"; list: (typeof MONTHLY_MILESTONE_CATEGORIES)[number] }
+  | { kind: "custom"; title: string };
+
+function TemplateCategoryIcon({
+  list,
+  customAreaTitle,
+  className = "h-3.5 w-3.5 shrink-0",
+}: {
+  list: TaskTemplateList;
+  customAreaTitle?: string | null;
+  className?: string;
+}) {
+  if (list === "deen") {
+    return <Moon className={className} style={{ color: WORK_LOG_AREA_COLORS.deen.color }} />;
+  }
+  if (list === "fitness") {
+    return <Dumbbell className={className} style={{ color: WORK_LOG_AREA_COLORS.fitness.color }} />;
+  }
+  if (list === "work") {
+    return <Briefcase className={className} style={{ color: WORK_LOG_AREA_COLORS.work.color }} />;
+  }
+  if (list === "custom") {
+    return <List className={className} style={{ color: WORK_LOG_CUSTOM_PLAN_COLOR }} />;
+  }
+  return null;
+}
+
+function TemplateCategoryPicker({
+  selected,
+  customAreas,
+  onSelect,
+}: {
+  selected: SelectedTemplateCategory;
+  customAreas: string[];
+  onSelect: (category: SelectedTemplateCategory) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {MONTHLY_MILESTONE_CATEGORIES.map((cat) => {
+          const catColors = WORK_LOG_AREA_COLORS[cat];
+          const active = selected.kind === "core" && selected.list === cat;
+          return (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => onSelect({ kind: "core", list: cat })}
+              className={`touch-target inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                active ? "text-[#070d0d]" : "hover:text-white"
+              }`}
+              style={
+                active
+                  ? { background: catColors.color, borderColor: catColors.border }
+                  : {
+                      borderColor: catColors.border,
+                      background: catColors.softBg,
+                      color: catColors.color,
+                    }
+              }
+            >
+              <TemplateCategoryIcon list={cat} className="h-3 w-3" />
+              {MILESTONE_CATEGORY_LABELS[cat]}
+            </button>
+          );
+        })}
+      </div>
+      {customAreas.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {customAreas.map((title) => {
+            const active = selected.kind === "custom" && selected.title.toLowerCase() === title.toLowerCase();
+            return (
+              <button
+                key={title}
+                type="button"
+                onClick={() => onSelect({ kind: "custom", title })}
+                className={`touch-target inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold transition-colors ${
+                  active ? "text-[#070d0d]" : "hover:text-white"
+                }`}
+                style={
+                  active
+                    ? {
+                        background: WORK_LOG_CUSTOM_PLAN_COLOR,
+                        borderColor: "rgba(167, 139, 250, 0.34)",
+                      }
+                    : {
+                        borderColor: "rgba(167, 139, 250, 0.34)",
+                        background: "rgba(167, 139, 250, 0.12)",
+                        color: WORK_LOG_CUSTOM_PLAN_COLOR,
+                      }
+                }
+              >
+                <List className="h-3 w-3 shrink-0" />
+                {title}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function PersonTabs({
   people,
   activePersonId,
@@ -264,12 +381,28 @@ export function DailyGoalProgress({
   );
 }
 
+function templateListIcon(template: Pick<WorkLogTaskTemplate, "list" | "customAreaTitle">) {
+  if (template.list === "custom") {
+    return <List className="w-3.5 h-3.5 shrink-0" style={{ color: WORK_LOG_CUSTOM_PLAN_COLOR }} />;
+  }
+  if (template.list === "deen") {
+    return <Moon className="w-3.5 h-3.5 shrink-0" style={{ color: WORK_LOG_AREA_COLORS.deen.color }} />;
+  }
+  if (template.list === "fitness") {
+    return <Dumbbell className="w-3.5 h-3.5 shrink-0" style={{ color: WORK_LOG_AREA_COLORS.fitness.color }} />;
+  }
+  return (
+    <Briefcase className="w-3.5 h-3.5 shrink-0" style={{ color: WORK_LOG_AREA_COLORS.work.color }} />
+  );
+}
+
 export function TaskTemplatesPanel({
   templates,
   isTemplateAdded,
   busy,
   onApply,
   onApplyAll,
+  areaLabel,
   className = "",
 }: {
   templates: WorkLogTaskTemplate[];
@@ -277,6 +410,7 @@ export function TaskTemplatesPanel({
   busy: boolean;
   onApply: (t: WorkLogTaskTemplate) => void;
   onApplyAll: () => void;
+  areaLabel?: string;
   className?: string;
 }) {
   const pending = templates.filter((t) => !isTemplateAdded(t));
@@ -288,7 +422,9 @@ export function TaskTemplatesPanel({
           <h2 className="text-sm font-bold text-white">Quick-add daily tasks</h2>
         </div>
         <p className="text-sm text-[var(--text-secondary)] mb-3">
-          Save tasks you do every day — add them all with one tap instead of typing again.
+          {areaLabel
+            ? `Save ${areaLabel} tasks you do every day — add them with one tap instead of typing again.`
+            : "Save tasks you do every day — add them all with one tap instead of typing again."}
         </p>
         <Link
           href="/manage#saved-tasks"
@@ -346,9 +482,10 @@ export function TaskTemplatesPanel({
                 }`}
                 title={added ? "Already added today" : `Add "${t.text}" to today`}
               >
-                {t.list === "deen" ? (
-                  <Moon className="w-3.5 h-3.5 shrink-0" style={{ color: WORK_LOG_AREA_COLORS.deen.color }} />
-                ) : null}
+                {templateListIcon(t)}
+                <span className="shrink-0 text-[10px] font-semibold text-[var(--text-secondary)]">
+                  {templateListLabel(t.list, t.customAreaTitle)}
+                </span>
                 <span className={`shrink-0 rounded-full border px-1.5 text-[10px] font-bold uppercase ${style.className}`}>
                   {style.label}
                 </span>
@@ -380,7 +517,10 @@ export function WorkLogSettingsContent({
   const [newPersonName, setNewPersonName] = useState("");
   const [newTemplateText, setNewTemplateText] = useState("");
   const [newTemplatePriority, setNewTemplatePriority] = useState<WorkLogPriority>("medium");
-  const [newTemplateList, setNewTemplateList] = useState<"work" | "deen">("work");
+  const [selectedCategory, setSelectedCategory] = useState<SelectedTemplateCategory>({
+    kind: "core",
+    list: "work",
+  });
   const [newTemplateHours, setNewTemplateHours] = useState("");
   const [newTemplateMins, setNewTemplateMins] = useState("");
   const [goalHours, setGoalHours] = useState(String(Math.floor(settings.dailyGoalMinutes / 60)));
@@ -416,13 +556,19 @@ export function WorkLogSettingsContent({
 
   const saveTemplate = async () => {
     if (!newTemplateText.trim()) return;
-    const ok = await onPatch({
+    const body: Record<string, unknown> = {
       action: "addTemplate",
       text: newTemplateText.trim(),
       priority: newTemplatePriority,
-      list: newTemplateList,
       estimateMinutes: parseEst(newTemplateHours, newTemplateMins),
-    });
+    };
+    if (selectedCategory.kind === "core") {
+      body.list = selectedCategory.list;
+    } else {
+      body.list = "custom";
+      body.customAreaTitle = selectedCategory.title;
+    }
+    const ok = await onPatch(body);
     if (ok) {
       setNewTemplateText("");
       setNewTemplateHours("");
@@ -584,12 +730,10 @@ export function WorkLogSettingsContent({
                       key={t.id}
                       className="flex items-center gap-2 rounded-xl border border-[var(--card-border)] bg-white/[0.03] px-3 py-2.5 text-sm transition-colors hover:border-[var(--accent-cyan)]/20"
                     >
-                      {t.list === "deen" ? (
-                        <Moon
-                          className="h-3.5 w-3.5 shrink-0"
-                          style={{ color: WORK_LOG_AREA_COLORS.deen.color }}
-                        />
-                      ) : null}
+                      {templateListIcon(t)}
+                      <span className="shrink-0 text-[10px] font-semibold text-[var(--text-secondary)]">
+                        {templateListLabel(t.list, t.customAreaTitle)}
+                      </span>
                       <span
                         className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-bold uppercase ${style.className}`}
                       >
@@ -657,39 +801,29 @@ export function WorkLogSettingsContent({
                 </div>
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <div className="space-y-2 sm:flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                    Category
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setNewTemplateList(newTemplateList === "work" ? "deen" : "work")}
-                    className={`touch-target inline-flex w-full items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold uppercase transition-all sm:w-auto ${
-                      newTemplateList === "deen"
-                        ? "border-emerald-400/50 bg-emerald-400/15 text-emerald-300 ring-2 ring-emerald-400/20"
-                        : "border-[var(--card-border)] bg-white/[0.04] text-[var(--text-secondary)] hover:text-white"
-                    }`}
-                  >
-                    {newTemplateList === "deen" ? (
-                      <Moon className="h-3.5 w-3.5" style={{ color: WORK_LOG_AREA_COLORS.deen.color }} />
-                    ) : null}
-                    {newTemplateList === "deen" ? "Deen" : "Business"}
-                  </button>
-                </div>
-                <div className="space-y-2 sm:flex-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-                    Estimated time
-                  </p>
-                  <DurationFields
-                    compact
-                    hours={newTemplateHours}
-                    mins={newTemplateMins}
-                    onHoursChange={setNewTemplateHours}
-                    onMinsChange={setNewTemplateMins}
-                    hoursMax={23}
-                  />
-                </div>
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                  Category
+                </p>
+                <TemplateCategoryPicker
+                  selected={selectedCategory}
+                  customAreas={settings.customAreas ?? []}
+                  onSelect={setSelectedCategory}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+                  Estimated time
+                </p>
+                <DurationFields
+                  compact
+                  hours={newTemplateHours}
+                  mins={newTemplateMins}
+                  onHoursChange={setNewTemplateHours}
+                  onMinsChange={setNewTemplateMins}
+                  hoursMax={23}
+                />
               </div>
 
               <button

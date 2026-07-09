@@ -41,18 +41,21 @@ import {
   PersonTabs,
   TaskTemplatesPanel,
   type WorkLogSettings,
+  type WorkLogTaskTemplate,
 } from "@/components/work-log/work-log-extras";
 import { DailyPlansSection } from "@/components/work-log/work-log-daily-plans";
+import { TaskAddedToast } from "@/components/work-log/task-added-toast";
 import { YearlyContributionChart } from "@/components/work-log/yearly-contribution-chart";
 import {
   createDefaultPlans,
   DEFAULT_DEEN_PLAN_ID,
   DEFAULT_FITNESS_PLAN_ID,
   DEFAULT_WORK_PLAN_ID,
+  planIdForTaskList,
   serializePlan,
   type SerializedWorkLogPlan,
 } from "@/lib/work-log-plans";
-import { PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
+import { MILESTONE_CATEGORY_LABELS, PRIMARY_PERSON_ID } from "@/lib/user-work-log-settings";
 import { CONTRIBUTION_WEEKS } from "@/lib/yearly-contribution-chart";
 import { dateKeyDaysAgo } from "@/lib/date-keys";
 import {
@@ -72,6 +75,7 @@ import {
   fetchWorkLogDays,
   fetchWorkLogSettings,
   patchWorkLogDay,
+  patchWorkLogSettings,
 } from "@/lib/offline/work-log-api";
 import { applyClientWorkLogAction } from "@/lib/offline/client-mutations";
 import { useOfflineSync } from "@/hooks/useOfflineSync";
@@ -326,7 +330,6 @@ function viewTabIconClass(active: boolean, variant: "inline" | "bottom") {
 }
 
 function WorkLogDashboardHeader({
-  title,
   subtitle,
   greetingText,
   todayKey,
@@ -339,7 +342,6 @@ function WorkLogDashboardHeader({
   onLogout,
   showActions,
 }: {
-  title: string;
   subtitle: string;
   greetingText: string;
   todayKey: string;
@@ -418,14 +420,6 @@ function WorkLogDashboardHeader({
               <span className="hidden sm:inline">{backLabel ?? "Back"}</span>
             </button>
           ) : null}
-          <div className="relative shrink-0">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -inset-2 rounded-full bg-[var(--accent-cyan)]/15 blur-2xl sm:-inset-3"
-            />
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.png" alt={title} data-tour="logo" className="relative h-10 w-auto sm:h-14" />
-          </div>
           <div className="hidden min-w-0 flex-1 space-y-2 sm:block">
             <h1 className="text-2xl font-bold leading-tight text-white">{greetingText}</h1>
             <div className="flex flex-wrap items-center gap-2">
@@ -613,6 +607,22 @@ export function WorkLogDashboard({
   const [busy, setBusy] = useState(false);
   const [activeView, setActiveView] = useState<"track" | "insights">("track");
   const [showQuickStart, setShowQuickStart] = useState(false);
+  const [activePlan, setActivePlan] = useState<SerializedWorkLogPlan | null>(null);
+  const [taskAddedToastOpen, setTaskAddedToastOpen] = useState(false);
+  const [taskAddedToastKey, setTaskAddedToastKey] = useState(0);
+
+  const handleActivePlanChange = useCallback((plan: SerializedWorkLogPlan | null) => {
+    setActivePlan(plan);
+  }, []);
+
+  const showTaskAddedToast = useCallback(() => {
+    setTaskAddedToastKey((key) => key + 1);
+    setTaskAddedToastOpen(true);
+  }, []);
+
+  const hideTaskAddedToast = useCallback(() => {
+    setTaskAddedToastOpen(false);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -849,15 +859,86 @@ export function WorkLogDashboard({
 
   const todayPlans = useMemo(() => resolveClientPlans(today), [today]);
 
+  const activeAreaKind =
+    activePlan?.kind === "work" || activePlan?.kind === "deen" || activePlan?.kind === "fitness"
+      ? activePlan.kind
+      : null;
+
+  const areaTaskTemplates = useMemo(() => {
+    if (!settings?.taskTemplates.length || !activePlan) return [];
+    if (activeAreaKind) {
+      return settings.taskTemplates.filter((t) => t.list === activeAreaKind);
+    }
+    if (activePlan.kind === "custom") {
+      const title = activePlan.title.trim().toLowerCase();
+      return settings.taskTemplates.filter(
+        (t) =>
+          t.list === "custom" &&
+          (t.customAreaTitle ?? "").trim().toLowerCase() === title
+      );
+    }
+    return [];
+  }, [settings?.taskTemplates, activePlan, activeAreaKind]);
+
+  const activeAreaLabel = activeAreaKind
+    ? MILESTONE_CATEGORY_LABELS[activeAreaKind]
+    : activePlan?.kind === "custom"
+      ? activePlan.title
+      : undefined;
+
+  const syncCustomAreaToSettings = useCallback(
+    async (title: string) => {
+      if (!settingsApiBase) return;
+      const trimmed = title.trim();
+      if (!trimmed) return;
+      const existing = settings?.customAreas ?? [];
+      if (existing.some((a) => a.toLowerCase() === trimmed.toLowerCase())) return;
+
+      try {
+        if (offlineUserId) {
+          const result = await patchWorkLogSettings(
+            settingsApiBase,
+            offlineUserId,
+            { action: "addCustomArea", title: trimmed },
+            authorizedInit
+          );
+          if (result.ok && result.data?.settings) {
+            setSettings(result.data.settings as WorkLogSettings);
+          }
+          return;
+        }
+        const res = await fetch(
+          settingsApiBase,
+          authorizedInit({
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "addCustomArea", title: trimmed }),
+          })
+        );
+        const data = await res.json().catch(() => null);
+        if (res.ok && data && typeof data === "object" && "settings" in data) {
+          setSettings((data as { settings: WorkLogSettings }).settings);
+        }
+      } catch {
+        // Optional enhancement — ignore sync failures.
+      }
+    },
+    [settingsApiBase, offlineUserId, authorizedInit, settings?.customAreas]
+  );
+
   const patchDayForPlans = useCallback(
     async (body: Record<string, unknown>) => {
       const action = body.action;
       if (action === "stopTimer" || action === "adjustMinutes") {
         return patchDay(todayKey, body);
       }
-      return patchDay(todayKey, body);
+      const ok = await patchDay(todayKey, body);
+      if (ok && action === "addPlan" && typeof body.title === "string") {
+        void syncCustomAreaToSettings(body.title);
+      }
+      return ok;
     },
-    [patchDay, todayKey]
+    [patchDay, todayKey, syncCustomAreaToSettings]
   );
 
   const saveNotes = async () => {
@@ -949,13 +1030,51 @@ export function WorkLogDashboard({
     [patchDay, historyAdjustH, historyAdjustM, days, nowMs]
   );
 
-  const applyTemplate = async (template: {
-    text: string;
-    priority: WorkLogPriority;
-    estimateMinutes: number | null;
-    list: "work" | "deen";
-  }) => {
-    const planId = template.list === "deen" ? DEFAULT_DEEN_PLAN_ID : DEFAULT_WORK_PLAN_ID;
+  const applyTemplate = async (template: WorkLogTaskTemplate) => {
+    let planId: string;
+    let tab: string;
+
+    if (template.list === "custom" && template.customAreaTitle) {
+      const title = template.customAreaTitle.trim();
+      const existing = todayPlans.find(
+        (p) => p.kind === "custom" && p.title.trim().toLowerCase() === title.toLowerCase()
+      );
+      if (existing) {
+        planId = existing.id;
+        tab = existing.id;
+      } else {
+        const addBody = { action: "addPlan", title, priority: "medium" as const };
+        const currentDay = days.find((d) => d.dateKey === todayKey) ?? null;
+        const optimisticDay = applyClientWorkLogAction(
+          (currentDay ?? null) as import("@/lib/admin-work-log").SerializedWorkLogDay | null,
+          todayKey,
+          addBody,
+          days as import("@/lib/admin-work-log").SerializedWorkLogDay[]
+        );
+        mergeDay(optimisticDay as WorkLogDay);
+        const newPlan = resolveClientPlans(optimisticDay as WorkLogDay).find(
+          (p) => p.kind === "custom" && p.title.trim().toLowerCase() === title.toLowerCase()
+        );
+        if (!newPlan) {
+          void load();
+          return;
+        }
+        planId = newPlan.id;
+        tab = newPlan.id;
+        const addPlanOk = await patchDay(todayKey, addBody);
+        if (!addPlanOk) {
+          void load();
+          return;
+        }
+        void syncCustomAreaToSettings(title);
+      }
+    } else if (template.list === "work" || template.list === "deen" || template.list === "fitness") {
+      planId = planIdForTaskList(template.list);
+      tab = template.list;
+    } else {
+      return;
+    }
+
     const body: Record<string, unknown> = {
       action: "addTask",
       planId,
@@ -980,14 +1099,24 @@ export function WorkLogDashboard({
       void load();
       return;
     }
-    const tab = template.list === "deen" ? "deen" : "work";
+    showTaskAddedToast();
     router.replace(`/?tab=${tab}`, { scroll: false });
   };
 
   const isTemplateAdded = useCallback(
-    (template: { text: string; list: "work" | "deen" }) => {
-      const planId = template.list === "deen" ? DEFAULT_DEEN_PLAN_ID : DEFAULT_WORK_PLAN_ID;
-      const plan = todayPlans.find((p) => p.id === planId);
+    (template: WorkLogTaskTemplate) => {
+      let plan: SerializedWorkLogPlan | undefined;
+      if (template.list === "custom" && template.customAreaTitle) {
+        const title = template.customAreaTitle.trim().toLowerCase();
+        plan = todayPlans.find(
+          (p) => p.kind === "custom" && p.title.trim().toLowerCase() === title
+        );
+      } else {
+        const coreList = template.list;
+        if (coreList === "work" || coreList === "deen" || coreList === "fitness") {
+          plan = todayPlans.find((p) => p.id === planIdForTaskList(coreList));
+        }
+      }
       if (!plan) return false;
       const key = template.text.trim().toLowerCase();
       return plan.subTasks.some((t) => t.text.trim().toLowerCase() === key);
@@ -996,8 +1125,8 @@ export function WorkLogDashboard({
   );
 
   const applyAllTemplates = async () => {
-    if (!settings?.taskTemplates.length) return;
-    for (const t of settings.taskTemplates) {
+    if (!areaTaskTemplates.length) return;
+    for (const t of areaTaskTemplates) {
       if (!isTemplateAdded(t)) {
         await applyTemplate(t);
       }
@@ -1159,7 +1288,6 @@ export function WorkLogDashboard({
           className="mb-5 sm:mb-8"
         >
           <WorkLogDashboardHeader
-            title={title}
             subtitle={subtitle}
             greetingText={greetingText}
             todayKey={todayKey}
@@ -1352,17 +1480,20 @@ export function WorkLogDashboard({
             azkarEveningSeconds={today.azkarEveningSeconds ?? 0}
             personId={activePersonId}
             onPatch={patchDayForPlans}
+            onActivePlanChange={handleActivePlanChange}
+            onTaskAdded={showTaskAddedToast}
           />
         </motion.div>
 
-        {settingsEnabled && settings ? (
+        {settingsEnabled && settings && activePlan ? (
           <div data-tour="templates">
             <TaskTemplatesPanel
-              templates={settings.taskTemplates}
+              templates={areaTaskTemplates}
               isTemplateAdded={isTemplateAdded}
               busy={busy}
               onApply={applyTemplate}
               onApplyAll={applyAllTemplates}
+              areaLabel={activeAreaLabel}
             />
           </div>
         ) : null}
@@ -1824,6 +1955,11 @@ export function WorkLogDashboard({
           })}
         </div>
       </nav>
+      <TaskAddedToast
+        open={taskAddedToastOpen}
+        dismissKey={taskAddedToastKey}
+        onClose={hideTaskAddedToast}
+      />
     </div>
   );
 }

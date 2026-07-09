@@ -13,6 +13,37 @@ export const MILESTONE_CATEGORY_LABELS: Record<MonthlyMilestoneCategory, string>
   fitness: "Fitness",
 };
 
+export const TASK_TEMPLATE_LISTS = [...MONTHLY_MILESTONE_CATEGORIES, "custom"] as const;
+export type TaskTemplateList = (typeof TASK_TEMPLATE_LISTS)[number];
+
+export function normalizeTemplateList(value: unknown): TaskTemplateList {
+  if (value === "deen" || value === "fitness" || value === "custom") return value;
+  return "work";
+}
+
+export function templateListLabel(
+  list: TaskTemplateList,
+  customAreaTitle?: string | null
+): string {
+  if (list === "custom") return (customAreaTitle ?? "").trim() || "Custom";
+  return MILESTONE_CATEGORY_LABELS[list];
+}
+
+function serializeCustomAreas(areas: unknown): string[] {
+  if (!Array.isArray(areas)) return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const area of areas) {
+    const title = typeof area === "string" ? area.trim().slice(0, 60) : "";
+    if (!title) continue;
+    const key = title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(title);
+  }
+  return result;
+}
+
 export const userWorkLogSettingsCollection =
   process.env.USER_WORK_LOG_SETTINGS_COLLECTION || "userWorkLogSettings";
 
@@ -40,7 +71,8 @@ export type WorkLogTaskTemplate = {
   text: string;
   priority: WorkLogPriority;
   estimateMinutes: number | null;
-  list: "work" | "deen";
+  list: TaskTemplateList;
+  customAreaTitle?: string | null;
 };
 
 /** Numeric milestone for a calendar month, e.g. "Connect with 100 doctors". */
@@ -87,6 +119,8 @@ export type UserWorkLogSettingsDoc = {
   yearlyGoalOverrides: YearlyGoalOverride[];
   /** When enabled, incomplete tasks from yesterday are copied to today. */
   carryOverIncompleteTasks: boolean;
+  /** User-defined area names for saved task templates and daily plans. */
+  customAreas: string[];
   createdAt: Date;
   updatedAt: Date;
 };
@@ -143,6 +177,7 @@ export type SerializedWorkLogSettings = {
   monthlyGoalOverrides: MonthlyGoalOverride[];
   yearlyGoalOverrides: YearlyGoalOverride[];
   carryOverIncompleteTasks: boolean;
+  customAreas: string[];
 };
 
 export type SerializedWorkLogTaskTemplate = {
@@ -150,7 +185,8 @@ export type SerializedWorkLogTaskTemplate = {
   text: string;
   priority: WorkLogPriority;
   estimateMinutes: number | null;
-  list: "work" | "deen";
+  list: TaskTemplateList;
+  customAreaTitle: string | null;
 };
 
 let indexesEnsured = false;
@@ -172,6 +208,9 @@ function nextPersonColor(existing: WorkLogPerson[]): string {
 }
 
 function serializeTemplate(t: WorkLogTaskTemplate): SerializedWorkLogTaskTemplate {
+  const list = normalizeTemplateList(t.list);
+  const customAreaTitle =
+    list === "custom" ? (t.customAreaTitle ?? "").trim().slice(0, 60) || null : null;
   return {
     id: t.id,
     text: t.text,
@@ -180,7 +219,8 @@ function serializeTemplate(t: WorkLogTaskTemplate): SerializedWorkLogTaskTemplat
       typeof t.estimateMinutes === "number" && t.estimateMinutes > 0
         ? Math.round(t.estimateMinutes)
         : null,
-    list: t.list === "deen" ? "deen" : "work",
+    list,
+    customAreaTitle,
   };
 }
 
@@ -238,6 +278,7 @@ export function serializeWorkLogSettings(doc: UserWorkLogSettingsDoc): Serialize
         minutes: Math.max(0, Math.round(o.minutes ?? 0)),
       })),
     carryOverIncompleteTasks: Boolean(doc.carryOverIncompleteTasks),
+    customAreas: serializeCustomAreas(doc.customAreas),
   };
 }
 
@@ -349,6 +390,7 @@ export async function getOrCreateUserWorkLogSettings(
         monthlyGoalOverrides: [],
         yearlyGoalOverrides: [],
         carryOverIncompleteTasks: false,
+        customAreas: [],
         createdAt: now,
         updatedAt: now,
       },
@@ -368,6 +410,7 @@ export async function getOrCreateUserWorkLogSettings(
       monthlyGoalOverrides: [],
       yearlyGoalOverrides: [],
       carryOverIncompleteTasks: false,
+      customAreas: [],
     };
   }
 
@@ -393,7 +436,8 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
     text: z.string().trim().min(1).max(500),
     priority: z.enum(WORK_LOG_PRIORITIES).optional(),
     estimateMinutes: z.coerce.number().int().min(1).max(24 * 60).nullish(),
-    list: z.enum(["work", "deen"]).optional(),
+    list: z.enum(TASK_TEMPLATE_LISTS).optional(),
+    customAreaTitle: z.string().trim().min(1).max(60).optional(),
   }),
   z.object({
     action: z.literal("updateTemplate"),
@@ -401,7 +445,16 @@ export const workLogSettingsActionSchema = z.discriminatedUnion("action", [
     text: z.string().trim().min(1).max(500).optional(),
     priority: z.enum(WORK_LOG_PRIORITIES).optional(),
     estimateMinutes: z.coerce.number().int().min(1).max(24 * 60).nullish(),
-    list: z.enum(["work", "deen"]).optional(),
+    list: z.enum(TASK_TEMPLATE_LISTS).optional(),
+    customAreaTitle: z.string().trim().min(1).max(60).optional(),
+  }),
+  z.object({
+    action: z.literal("addCustomArea"),
+    title: z.string().trim().min(1).max(60),
+  }),
+  z.object({
+    action: z.literal("deleteCustomArea"),
+    title: z.string().trim().min(1).max(60),
   }),
   z.object({
     action: z.literal("deleteTemplate"),
@@ -521,16 +574,31 @@ export async function applyWorkLogSettingsAction(
       break;
     }
     case "addTemplate": {
+      const list = normalizeTemplateList(body.list ?? "work");
+      const customAreaTitle =
+        list === "custom" ? (body.customAreaTitle ?? "").trim().slice(0, 60) : null;
+      if (list === "custom" && !customAreaTitle) {
+        throw new Error("Custom area title is required");
+      }
       const template: WorkLogTaskTemplate = {
         id: randomUUID(),
         text: body.text,
         priority: body.priority ?? "medium",
         estimateMinutes: body.estimateMinutes ?? null,
-        list: body.list ?? "work",
+        list,
+        customAreaTitle,
       };
+      const setFields: Record<string, unknown> = { updatedAt: now };
+      if (list === "custom" && customAreaTitle) {
+        const doc = await coll.findOne({ userId });
+        const areas = serializeCustomAreas(doc?.customAreas);
+        if (!areas.some((a) => a.toLowerCase() === customAreaTitle.toLowerCase())) {
+          setFields.customAreas = [...areas, customAreaTitle];
+        }
+      }
       await coll.updateOne(
         { userId },
-        { $push: { taskTemplates: template }, $set: { updatedAt: now } }
+        { $push: { taskTemplates: template }, $set: setFields }
       );
       break;
     }
@@ -540,13 +608,22 @@ export async function applyWorkLogSettingsAction(
       const idx = templates.findIndex((t) => t.id === body.templateId);
       if (idx < 0) throw new Error("Template not found");
       const current = templates[idx];
+      const list = normalizeTemplateList(body.list ?? current.list);
+      const customAreaTitle =
+        list === "custom"
+          ? (body.customAreaTitle ?? current.customAreaTitle ?? "").trim().slice(0, 60) || null
+          : null;
+      if (list === "custom" && !customAreaTitle) {
+        throw new Error("Custom area title is required");
+      }
       const updated: WorkLogTaskTemplate = {
         ...current,
         text: body.text ?? current.text,
         priority: body.priority ?? current.priority,
         estimateMinutes:
           body.estimateMinutes !== undefined ? body.estimateMinutes ?? null : current.estimateMinutes,
-        list: body.list ?? current.list,
+        list,
+        customAreaTitle,
       };
       await coll.updateOne(
         { userId },
@@ -560,6 +637,34 @@ export async function applyWorkLogSettingsAction(
         { $pull: { taskTemplates: { id: body.templateId } }, $set: { updatedAt: now } }
       );
       if (result.modifiedCount === 0) throw new Error("Template not found");
+      break;
+    }
+    case "addCustomArea": {
+      const doc = await coll.findOne({ userId });
+      const areas = serializeCustomAreas(doc?.customAreas);
+      const title = body.title.trim().slice(0, 60);
+      if (!areas.some((a) => a.toLowerCase() === title.toLowerCase())) {
+        areas.push(title);
+      }
+      await coll.updateOne(
+        { userId },
+        { $set: { customAreas: areas, updatedAt: now } }
+      );
+      break;
+    }
+    case "deleteCustomArea": {
+      const doc = await coll.findOne({ userId });
+      const areas = serializeCustomAreas(doc?.customAreas);
+      const key = body.title.trim().toLowerCase();
+      await coll.updateOne(
+        { userId },
+        {
+          $set: {
+            customAreas: areas.filter((a) => a.toLowerCase() !== key),
+            updatedAt: now,
+          },
+        }
+      );
       break;
     }
     case "setDailyGoal": {
